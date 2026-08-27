@@ -2,16 +2,11 @@ name: Release
 
 on:
   push:
+    branches:
+    - main
     tags:
     - 'v*'
   workflow_dispatch:
-    inputs:
-      release:
-        description: 'Publish to GitHub Releases'
-        required: false
-        default: 'false'
-        type: choice
-        options: ['false', 'true']
 
 permissions:
   contents: write
@@ -39,14 +34,14 @@ jobs:
     - name: Package
       run: |
         $sha = git rev-parse --short HEAD
-        if ($env:GITHUB_REF_NAME) {
+        if ($env:GITHUB_REF -like 'refs/tags/v*') {
           $ver = $env:GITHUB_REF_NAME
         } else {
           $ver = $sha
         }
         New-Item -ItemType Directory -Force dist | Out-Null
         # Layout: ArmorPaint/ contains the exe + data dir, matching the
-        # runtime's exe-relative asset lookup.
+        # runtime's exe-relative asset lookup (base/sources/iron.h kickstart).
         New-Item -ItemType Directory -Force "dist\ArmorPaint" | Out-Null
         Copy-Item "paint\build\out\ArmorPaint.exe" "dist\ArmorPaint\"
         Copy-Item -Recurse "paint\build\out\data" "dist\ArmorPaint\data"
@@ -63,14 +58,94 @@ jobs:
         path: dist/*
         if-no-files-found: error
 
-    - name: Publish release (on tag, or explicit request)
-      if: startsWith(github.ref, 'refs/tags/v') || inputs.release == 'true'
-      uses: softprops/action-gh-release@v2
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
       with:
-        files: |
-          dist/ArmorPaint-*-windows-x64.zip
-          dist/ArmorPaint-*-windows-x64.zip.sha256
-        draft: false
-        prerelease: false
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0
+
+    - name: Apt Install
+      run: sudo apt-get update && sudo apt install --yes --quiet make clang libvulkan-dev libgtk-3-dev libasound2-dev
+
+    - name: Build (release)
+      run: |
+        cd paint
+        ../base/make --compile
+        echo "--- build/out contents:"
+        ls -la build/out
+
+    - name: Package
+      run: |
+        set -e
+        sha=$(git rev-parse --short HEAD)
+        if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+          ver="$GITHUB_REF_NAME"
+        else
+          ver="$sha"
+        fi
+        mkdir -p dist
+        test -f "paint/build/out/ArmorPaint"
+        ( cd paint/build/out
+          tar czf "../../../dist/ArmorPaint-$ver-linux-x64.tar.gz" ArmorPaint data )
+        ( cd dist
+          sha256sum "ArmorPaint-$ver-linux-x64.tar.gz" > "ArmorPaint-$ver-linux-x64.tar.gz.sha256" )
+        ls -la dist
+
+    - name: Upload artifact (always)
+      uses: actions/upload-artifact@v4
+      with:
+        name: ArmorPaint-linux
+        path: dist/*
+        if-no-files-found: error
+
+  publish:
+    needs: [windows, linux]
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 1
+
+    - uses: actions/download-artifact@v4
+      with:
+        name: ArmorPaint-windows
+        path: dist/windows
+    - uses: actions/download-artifact@v4
+      with:
+        name: ArmorPaint-linux
+        path: dist/linux
+
+    # `gh` authenticates via the GITHUB_TOKEN env var that Actions runners
+    # pre-populate automatically (we deliberately do NOT write a secrets
+    # expression into this file: it gets redacted to literal `***` on disk,
+    # breaking the YAML). permissions: contents: write (top) authorizes it.
+    - name: Publish GitHub Release (CD)
+      run: |
+        set -e
+        if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+          TAG="$GITHUB_REF_NAME"
+        else
+          TAG="build-$(git rev-parse --short=7 HEAD)"
+        fi
+        SHA=$(git rev-parse --short=7 HEAD)
+        NOTES="Build of haasanen/armorpaint @ $SHA.
+          Windows: unzip, then double-click ArmorPaint.exe. No installer, no dependencies, nothing else needed.
+          Linux: extract the tarball, then cd ArmorPaint and run ./ArmorPaint (needs a Vulkan-capable driver, GTK3, ALSA - standard on any desktop distro).
+          Verify: sha256sum -c *.sha256 (Linux) or certutil -hashfile <zip> SHA256 (Windows)."
+        echo "Publishing release $TAG"
+        # Demote every current non-prerelease so this build gets the "Latest" badge.
+        for R in $(gh api repos/$GITHUB_REPOSITORY/releases --paginate --jq '.[] | select(.prerelease==false and .tag_name!="'$TAG'") | .tag_name'); do
+          echo "demoting $R to prerelease"
+          gh api -X PATCH repos/$GITHUB_REPOSITORY/releases/tags/$R -f prerelease=true >/dev/null
+        done
+        # Idempotent: replace a release with the same tag (e.g. re-run).
+        if gh release view "$TAG" >/dev/null 2>&1; then
+          gh release delete "$TAG" --yes --cleanup-tag
+        fi
+        gh release create "$TAG" --title "$TAG" --notes "$NOTES" \
+          dist/windows/ArmorPaint-*.zip \
+          dist/windows/ArmorPaint-*.sha256 \
+          dist/linux/ArmorPaint-*.tar.gz \
+          dist/linux/ArmorPaint-*.sha256
+        echo "Release URL: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"
