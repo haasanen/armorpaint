@@ -306,14 +306,19 @@ jobs:
           Android: install the APK directly (arm64 devices, Android 15+; minSdk 35 as set by upstream). Updates install over the previous build without uninstall.
           Verify: sha256sum -c *.sha256 (Linux) or certutil -hashfile <zip> SHA256 (Windows)."
         echo "Publishing release $TAG"
-        # Demote every current non-prerelease so this build gets the "Latest" badge.
+        # Demote every current non-prerelease so this build gets the "Latest"
+        # badge. The API only supports PATCH by numeric release id — by tag
+        # name it returns 404 (verified with the REST API).
         for R in $(gh api repos/$GITHUB_REPOSITORY/releases --paginate --jq '.[] | select(.prerelease==false and .tag_name!="'$TAG'") | .tag_name'); do
           echo "demoting $R to prerelease"
-          gh api -X PATCH repos/$GITHUB_REPOSITORY/releases/tags/$R -f prerelease=true >/dev/null
+          RID=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$R" --jq .id)
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$RID" -f prerelease=true >/dev/null
         done
         # Idempotent: replace a release with the same tag (e.g. re-run).
-        if gh release view "$TAG" >/dev/null 2>&1; then
-          gh release delete "$TAG" --yes --cleanup-tag
+        # `gh release view TAG` exits 0 even when the release does not exist
+        # (prints "Not Found"), so probe with --json which exits non-zero.
+        if gh release view "$TAG" --json tagName >/dev/null 2>&1; then
+          gh release delete "$TAG" --yes --cleanup-tag || true
         fi
         gh release create "$TAG" --title "$TAG" --notes "$NOTES" \
           dist/windows/ArmorPaint-*.zip \
