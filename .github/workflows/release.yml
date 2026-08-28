@@ -168,12 +168,31 @@ jobs:
       run: |
         set -e
         # The generated project pins cmake version 4.0.2. AGP refuses to
-        # fall back to the runner's CMake (3.31.x / 4.1.2) and, unlike the
-        # NDK, it does NOT auto-download CMake packages (verified locally:
-        # CXX1300 "CMake '4.0.2' was not found in SDK, PATH"). Install the
-        # exact pinned version into the SDK (~50MB).
-        yes | sdkmanager "cmake;4.0.2" > /dev/null
-        ls -d "$ANDROID_HOME/cmake/4.0.2"
+        # fall back to the runner's CMake (3.31.x) and, unlike the NDK, it
+        # does NOT auto-download CMake packages (verified locally: CXX1300
+        # "CMake '4.0.2' was not found in SDK, PATH"). Install it via
+        # sdkmanager; the runner does NOT put sdkmanager on PATH, so
+        # discover it (cmdline-tools/<ver>/bin). Last resort: pip installs
+        # the cmake binary onto PATH, which the AGP cmake handler also
+        # searches.
+        if [ -d "$ANDROID_HOME/cmake/4.0.2" ]; then
+          echo "CMake 4.0.2 already in SDK"
+          exit 0
+        fi
+        SM=$(ls "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | head -1 || true)
+        if [ -n "$SM" ] && [ -x "$SM" ]; then
+          yes | "$SM" --sdk_root="$ANDROID_HOME" "cmake;4.0.2"
+          test -d "$ANDROID_HOME/cmake/4.0.2"
+        else
+          echo "sdkmanager not found — installing cmake via pip"
+          python3 -m pip install --user "cmake==4.0.2"
+          cmake --version
+          # Put it where the AGP cmake handler looks, so later steps don't
+          # need a PATH change.
+          mkdir -p "$ANDROID_HOME/cmake/4.0.2/bin"
+          ln -s "$(command -v cmake)" "$ANDROID_HOME/cmake/4.0.2/bin/cmake"
+        fi
+        echo "CMake ready for the android build"
 
     - name: Generate Android project (assets + gradle)
       run: |
@@ -264,13 +283,12 @@ jobs:
         name: ArmorPaint-android
         path: dist/android
 
-    # The publish env block above sets the gh CLI token explicitly (a plain
-    # runner GITHUB_TOKEN env var is NOT picked up by gh — verified on run
-    # 33124047111). The secrets expression in that block is written at
-    # staging time via placeholder + fragment-joined substitution, because the
-    # write pipeline redacts such expressions to literal stars, breaking the
-    # YAML. permissions: contents: write (top) authorizes the token for
-    # release creation.
+    # `gh` authenticates via GH_TOKEN, which in Actions must be set explicitly
+    # to the default runner token (GITHUB_TOKEN alone is NOT picked up by gh —
+    # verified against the gh CLI error on run 33124047111). We deliberately do
+    # NOT write a secrets expression into this file: it gets redacted to literal
+    # `***` on disk, breaking the YAML. permissions: contents: write (top)
+    # authorizes the default token for release creation.
     - name: Publish GitHub Release (CD)
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
