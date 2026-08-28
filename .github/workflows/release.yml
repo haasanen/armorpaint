@@ -384,25 +384,25 @@ jobs:
         echo "Release title: $TITLE"
         NOTES="## $TITLE
 
-          Fork of [armory3d/armorpaint](https://github.com/armory3d/armorpaint), auto-synced with upstream daily.
+        Fork of [armory3d/armorpaint](https://github.com/armory3d/armorpaint), auto-synced with upstream daily.
 
-          **Versioning** - v<upstream version> (build date) - <commit>. Compare it with the string the app shows (About box / status bar on desktop, Settings > Apps > ArmorPaint on Android) to check whether a newer build exists.
+        **Versioning** - v<upstream version> (build date) - <commit>. Compare it with the string the app shows (About box / status bar on desktop, Settings > Apps > ArmorPaint on Android) to check whether a newer build exists.
 
-          ### Windows
-          Unzip, then double-click **ArmorPaint.exe**. No installer, no dependencies.
+        ### Windows
+        Unzip, then double-click **ArmorPaint.exe**. No installer, no dependencies.
 
-          ### Linux
-          Extract the tarball, then run **./ArmorPaint** from the ArmorPaint folder. Needs a Vulkan-capable GPU driver, GTK3 and ALSA (standard on any desktop distro).
+        ### Linux
+        Extract the tarball, then run **./ArmorPaint** from the ArmorPaint folder. Needs a Vulkan-capable GPU driver, GTK3 and ALSA (standard on any desktop distro).
 
-          ### Android
-          Install the APK (arm64 devices, Android 15+). Updates install over the previous build without uninstall.
+        ### Android
+        Install the APK (arm64 devices, Android 15+). Updates install over the previous build without uninstall.
 
-          > Note: the ~20 MB CJK font is not bundled. The app downloads it automatically the first time you switch to a Japanese, Korean or Chinese locale.
+        > Note: the ~20 MB CJK font is not bundled. The app downloads it automatically the first time you switch to a Japanese, Korean or Chinese locale.
 
-          ### Verify integrity
-          - Linux / macOS: sha256sum -c ArmorPaint-*.sha256
-          - Windows: certutil -hashfile ArmorPaint-*.zip SHA256"
-        echo "Publishing release $TAG"        echo "Publishing release $TAG"
+        ### Verify integrity
+        - Linux / macOS: sha256sum -c ArmorPaint-*.sha256
+        - Windows: certutil -hashfile ArmorPaint-*.zip SHA256"
+        echo "Publishing release $TAG"
         # No demotion needed (verified 2026-08-28 with live API experiments):
         # with every release kept non-prerelease, GitHub marks the newest
         # build-<sha> release as "Latest" on its own - un-prereleasing an
