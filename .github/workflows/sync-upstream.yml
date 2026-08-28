@@ -2,8 +2,10 @@ name: Sync upstream
 
 on:
   schedule:
-    # Daily at 09:00 UTC (upstream commits roughly daily)
-    - cron: '0 9 * * *'
+    # Daily at 04:00 UTC (upstream commits roughly daily). Deliberately
+    # overnight, never at daytime: the sync + the release build it triggers
+    # are done before anyone wakes up. GitHub Actions cron runs in UTC.
+    - cron: '0 4 * * *'
   workflow_dispatch:
 
 permissions:

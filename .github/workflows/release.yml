@@ -31,6 +31,24 @@ jobs:
         echo "--- build/out contents:"
         Get-ChildItem build\out | Format-Table Name, Length
 
+    - name: Rewrite version.json date to YYMMDD (build data, not source)
+      run: |
+        # The About box shows "v<version> (<date>) - <sha>" from
+        # data/version.json, a runtime data file shipped next to the exe
+        # (NOT compiled into the binary). The generator writes the date as
+        # YYYY-MM-DD; rewrite it to YYMMDD so sorting by build version sorts
+        # chronologically. Build output only - no repository code changes.
+        $date = (Get-Date -AsUTC).ToString("yyMMdd")
+        $p = "paint\build\out\data\version.json"
+        if (Test-Path $p) {
+          $re = '"date"\s*:\s*"[^"]*"'
+          $repl = '"date": "' + $date + '"'
+          (Get-Content $p -Raw) -replace $re, $repl | Set-Content $p -NoNewline
+          Get-Content $p
+        } else {
+          Write-Error "version.json not found at $p"
+        }
+
     - name: Package
       run: |
         $sha = git rev-parse --short HEAD
@@ -74,6 +92,24 @@ jobs:
         ../base/make --compile
         echo "--- build/out contents:"
         ls -la build/out
+
+    - name: Rewrite version.json date to YYMMDD (build data, not source)
+      run: |
+        set -e
+        # Same as the Windows job: the About box reads the date from
+        # data/version.json (runtime data file next to the exe). Rewrite the
+        # generator's YYYY-MM-DD to YYMMDD so versions sort chronologically.
+        # Build output only - no repository code changes.
+        DATE=$(date -u +%y%m%d)
+        python3 - "paint/build/out/data/version.json" "$DATE" <<'PYEOF'
+        import re, sys
+        f, d = sys.argv[1], sys.argv[2]
+        txt = open(f).read()
+        new = re.sub(r'"date"\s*:\s*"[^"]*"', '"date": "%s"' % d, txt, count=1)
+        assert new != txt, "date key not found in %s" % f
+        open(f, "w").write(new)
+        print(open(f).read())
+        PYEOF
 
     - name: Package
       run: |
@@ -214,7 +250,7 @@ jobs:
         ls -la build/ArmorPaint
         test -d build/ArmorPaint/app/src/main/assets/data
 
-    - name: Stamp versionName with upstream version + commit
+    - name: Stamp versionName + version.json (version, YYMMDD date, commit)
       run: |
         set -e
         # The Android exporter (base/project.js) hardcodes versionName to the
@@ -225,8 +261,9 @@ jobs:
         # (monotonic, keeps install-over-update working).
         VER=$(sed -n 's/^char \*manifest_version * = *"\([^"]*\)".*/\1/p' paint/sources/globals.h | head -1)
         SHA=$(git rev-parse --short=7 HEAD)
+        DATE=$(date -u +%y%m%d)
         if [ -n "$VER" ]; then
-          VNAME="$VER ($SHA)"
+          VNAME="v$VER ($DATE) - $SHA"
           F=paint/build/ArmorPaint/app/build.gradle.kts
           python3 - "$F" "$VNAME" <<'PYEOF'
         import re, sys
@@ -238,6 +275,19 @@ jobs:
         PYEOF
           echo "versionName -> $VNAME"
           grep -n "versionName" "$F"
+          # The About box reads its date/sha from data/version.json, which the
+          # exporter copied into the APK assets - rewrite its date here too so
+          # the in-app string matches the app-info versionName.
+          FV=paint/build/ArmorPaint/app/src/main/assets/data/version.json
+          python3 - "$FV" "$DATE" <<'PYEOF'
+        import re, sys
+        f, d = sys.argv[1], sys.argv[2]
+        txt = open(f).read()
+        new = re.sub(r'"date"\s*:\s*"[^"]*"', '"date": "%s"' % d, txt, count=1)
+        assert new != txt, "date key not found in %s" % f
+        open(f, "w").write(new)
+        print("APK version.json -> " + open(f).read())
+        PYEOF
         else
           echo "manifest_version not found in globals.h - keeping generator default"
         fi
@@ -331,7 +381,13 @@ jobs:
         # daily auto-sync), so the release title tracks upstream automatically.
         UPVER=$(sed -n 's/^char \*manifest_version * = *"\([^"]*\)".*/\1/p' paint/sources/globals.h | head -1)
         if [ -n "$UPVER" ]; then
-          TITLE="v$UPVER ($SHA)"
+          # YYMMDD date exactly as shipped in the builds: read it back from
+          # the linux artifact's data/version.json (plain text file) so the
+          # title always matches what the apps display. Fallback: today UTC.
+          DATE=$(tar xzf dist/linux/ArmorPaint-*.tar.gz ArmorPaint/data/version.json -O 2>/dev/null \
+            | python3 -c "import json,sys; print(json.load(sys.stdin)['date'])" 2>/dev/null || date -u +%y%m%d)
+          echo "version date from build artifacts: $DATE"
+          TITLE="v$UPVER ($DATE) - $SHA"
         else
           TITLE="$TAG"
         fi
