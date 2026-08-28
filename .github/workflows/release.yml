@@ -397,7 +397,7 @@ jobs:
         if [ -n "$PREV_TAG" ]; then
           NCOMMITS=$(git rev-list --count --no-merges "$PREV_TAG..HEAD")
           if [ "$NCOMMITS" -gt 0 ]; then
-            CHANGES=$(git log --no-merges --format='  * [%h](https://github.com/${GITHUB_REPOSITORY}/commit/%h) %s' "$PREV_TAG..HEAD" | head -30)
+            CHANGES=$(git log --no-merges --format="  * [%h](https://github.com/${GITHUB_REPOSITORY}/commit/%h) %s" "$PREV_TAG..HEAD" | head -30)
             MORE=""
             if [ "$NCOMMITS" -gt 30 ]; then
               MORE=$(printf '\n  ... and %s more commit(s) - full list in the repository history.' "$((NCOMMITS - 30))")
