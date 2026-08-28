@@ -285,10 +285,9 @@ jobs:
 
     # `gh` authenticates via GH_TOKEN, which in Actions must be set explicitly
     # to the default runner token (GITHUB_TOKEN alone is NOT picked up by gh —
-    # verified against the gh CLI error on run 33124047111). We deliberately do
-    # NOT write a secrets expression into this file: it gets redacted to literal
-    # `***` on disk, breaking the YAML. permissions: contents: write (top)
-    # authorizes the default token for release creation.
+    # verified against the gh CLI error on run 33124047111). The
+    # permissions: contents: write block at the top of this workflow is what
+    # authorizes that default token for release creation.
     - name: Publish GitHub Release (CD)
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
