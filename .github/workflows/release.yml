@@ -336,7 +336,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
       with:
-        fetch-depth: 1
+        fetch-depth: 0   # full history + build-* tags: needed for the changelog
 
     - uses: actions/download-artifact@v4
       with:
@@ -382,11 +382,39 @@ jobs:
           TITLE="$TAG"
         fi
         echo "Release title: $TITLE"
+        # Changelog: upstream commits pulled in since the previous build tag.
+        # Only tags whose commit is an ANCESTOR of HEAD count (older tags may
+        # dangle outside the branch after a history rewrite). Merge commits
+        # are excluded - the upstream commit subjects ARE the changes.
+        HEAD_COMMIT=$(git rev-parse HEAD)
+        PREV_TAG=""
+        for t in $(git tag -l 'build-*' --sort=-creatordate); do
+          c=$(git rev-list -n1 "$t" 2>/dev/null) || continue
+          [ "$c" = "$HEAD_COMMIT" ] && continue
+          git merge-base --is-ancestor "$c" HEAD 2>/dev/null && { PREV_TAG="$t"; break; }
+        done
+        CHANGELOG=""
+        if [ -n "$PREV_TAG" ]; then
+          NCOMMITS=$(git rev-list --count --no-merges "$PREV_TAG..HEAD")
+          if [ "$NCOMMITS" -gt 0 ]; then
+            CHANGES=$(git log --no-merges --format='  * [%h](https://github.com/${GITHUB_REPOSITORY}/commit/%h) %s' "$PREV_TAG..HEAD" | head -30)
+            MORE=""
+            if [ "$NCOMMITS" -gt 30 ]; then
+              MORE=$(printf '\n  ... and %s more commit(s) - full list in the repository history.' "$((NCOMMITS - 30))")
+            fi
+            if [ "$NCOMMITS" = 1 ]; then PL=""; else PL="s"; fi
+            CHANGELOG=$(printf '\n### Changes since the previous build (%s upstream commit%s)\n%s%s\n' "$NCOMMITS" "$PL" "$CHANGES" "$MORE")
+            echo "changelog: $NCOMMITS upstream commit(s) since $PREV_TAG"
+          fi
+        fi
         NOTES="## $TITLE
 
         Fork of [armory3d/armorpaint](https://github.com/armory3d/armorpaint), auto-synced with upstream daily.
 
         **Versioning** - v<upstream version> (build date) - <commit>. Compare it with the string the app shows (About box / status bar on desktop, Settings > Apps > ArmorPaint on Android) to check whether a newer build exists.
+
+        **Builds (all platforms)** - each build is the complete app: one executable + the bundled data (textures, tools, shaders). The ~20 MB CJK font is NOT bundled (it would make every build about 7x larger); the app downloads it automatically the first time you switch to a Japanese, Korean or Chinese locale and caches it - without it the UI simply falls back to English. No accounts, no telemetry, no mandatory network access.
+        $CHANGELOG
 
         ### Windows
         Unzip, then double-click **ArmorPaint.exe**. No installer, no dependencies.
@@ -396,8 +424,6 @@ jobs:
 
         ### Android
         Install the APK (arm64 devices, Android 15+). Updates install over the previous build without uninstall.
-
-        > Note: the ~20 MB CJK font is not bundled. The app downloads it automatically the first time you switch to a Japanese, Korean or Chinese locale.
 
         ### Verify integrity
         - Linux / macOS: sha256sum -c ArmorPaint-*.sha256
