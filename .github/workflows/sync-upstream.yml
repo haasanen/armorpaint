@@ -1,0 +1,63 @@
+name: Sync upstream
+
+on:
+  schedule:
+    # Daily at 04:00 UTC (upstream commits roughly daily). Deliberately
+    # overnight, never at daytime: the sync + the release build it triggers
+    # are done before anyone wakes up. GitHub Actions cron runs in UTC.
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Sync main with upstream/main
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        set -euo pipefail
+
+        git remote add upstream https://github.com/armory3d/armorpaint.git
+        git fetch --no-tags upstream main
+
+        AHEAD=$(git rev-list --count HEAD..upstream/main)
+        echo "upstream commits missing: $AHEAD"
+        if [ "$AHEAD" -eq 0 ]; then
+          echo "Already in sync - nothing to do."
+          exit 0
+        fi
+
+        git log --oneline HEAD..upstream/main | sed 's/^/  pending: /'
+
+        # Read-only preflight: prove the merge is conflict-free before touching
+        # the branch. On conflict, merge-tree prints the conflicting files and
+        # exits non-zero; we abort WITHOUT pushing anything and leave the
+        # conflict for a human to resolve.
+        if ! git merge-tree --write-tree HEAD upstream/main > /tmp/mergetree.txt 2>&1; then
+          echo "::error::Merge with upstream/main has conflicts - aborting, NOT pushing."
+          cat /tmp/mergetree.txt
+          exit 1
+        fi
+        echo "Preflight clean - merge is conflict-free."
+
+        git config user.name "haasanen"
+        git config user.email "haasanen@users.noreply.github.com"
+        if [ "$AHEAD" -eq 1 ]; then PLURAL=""; else PLURAL="s"; fi
+        git merge --no-ff upstream/main \
+          -m "chore: sync upstream/main ($AHEAD commit$PLURAL)"
+
+        git push origin main
+        echo "Synced $AHEAD commit(s) from upstream. Release pipeline will rebuild."
