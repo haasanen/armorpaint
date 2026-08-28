@@ -214,6 +214,34 @@ jobs:
         ls -la build/ArmorPaint
         test -d build/ArmorPaint/app/src/main/assets/data
 
+    - name: Stamp versionName with upstream version + commit
+      run: |
+        set -e
+        # The Android exporter (base/project.js) hardcodes versionName to the
+        # build date (YYMMDD). Rewrite the GENERATED gradle file (build output,
+        # not repository source) so Settings > Apps shows
+        # "1.0 rc2 (a83efc5)" — the upstream version from
+        # paint/sources/globals.h plus our commit. versionCode stays YYMMDD
+        # (monotonic, keeps install-over-update working).
+        VER=$(sed -n 's/^char \*manifest_version * = *"\([^"]*\)".*/\1/p' paint/sources/globals.h | head -1)
+        SHA=$(git rev-parse --short=7 HEAD)
+        if [ -n "$VER" ]; then
+          VNAME="$VER ($SHA)"
+          F=paint/build/ArmorPaint/app/build.gradle.kts
+          python3 - "$F" "$VNAME" <<'PYEOF'
+        import re, sys
+        f, v = sys.argv[1], sys.argv[2]
+        txt = open(f).read()
+        new = re.sub(r'versionName = "[^"]*"', 'versionName = "%s"' % v, txt, count=1)
+        assert new != txt, "versionName line not found in generated gradle"
+        open(f, "w").write(new)
+        PYEOF
+          echo "versionName -> $VNAME"
+          grep -n "versionName" "$F"
+        else
+          echo "manifest_version not found in globals.h - keeping generator default"
+        fi
+
     - name: Build APK (signed with the permanent release key)
       env:
         AP_KEYSTORE_FILE: ${{ github.workspace }}/keystore/armorpaint-release.p12
@@ -299,6 +327,15 @@ jobs:
           TAG="build-$(git rev-parse --short=7 HEAD)"
         fi
         SHA=$(git rev-parse --short=7 HEAD)
+        # Upstream version straight from the source we built (pulled in by the
+        # daily auto-sync), so the release title tracks upstream automatically.
+        UPVER=$(sed -n 's/^char \*manifest_version * = *"\([^"]*\)".*/\1/p' paint/sources/globals.h | head -1)
+        if [ -n "$UPVER" ]; then
+          TITLE="v$UPVER ($SHA)"
+        else
+          TITLE="$TAG"
+        fi
+        echo "Release title: $TITLE"
         NOTES="Build of haasanen/armorpaint @ $SHA.
           Windows: unzip, then double-click ArmorPaint.exe. No installer, no dependencies, nothing else needed.
           Linux: extract the tarball, then cd ArmorPaint and run ./ArmorPaint (needs a Vulkan-capable driver, GTK3, ALSA - standard on any desktop distro).
@@ -319,7 +356,7 @@ jobs:
         if gh release view "$TAG" --json tagName >/dev/null 2>&1; then
           gh release delete "$TAG" --yes --cleanup-tag || true
         fi
-        gh release create "$TAG" --title "$TAG" --notes "$NOTES" \
+        gh release create "$TAG" --title "$TITLE" --notes "$NOTES" \
           dist/windows/ArmorPaint-*.zip \
           dist/windows/ArmorPaint-*.sha256 \
           dist/linux/ArmorPaint-*.tar.gz \
