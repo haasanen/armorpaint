@@ -235,7 +235,7 @@ jobs:
         # runner clean; AGP auto-installs the pinned CMake into the SDK.
         bash gradlew assembleRelease --no-daemon --console=plain \
           -I "$GITHUB_WORKSPACE/android_signing_init.gradle"
-        APK=$(find app/build/outputs/apk/release -name '*.apk' | head -1)
+        APK="$PWD/$(find app/build/outputs/apk/release -name '*.apk' | head -1)"
         echo "APK: $APK"
         ls -la "$APK"
         # Verify it is signed with OUR certificate (not a debug key).
