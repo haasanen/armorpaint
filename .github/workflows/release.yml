@@ -84,10 +84,14 @@ jobs:
         else
           ver="$sha"
         fi
-        mkdir -p dist
-        test -f "paint/build/out/ArmorPaint"
-        ( cd paint/build/out
-          tar czf "../../../dist/ArmorPaint-$ver-linux-x64.tar.gz" ArmorPaint data )
+        # Same layout as the Windows zip: a single ArmorPaint/ folder with
+        # the executable + data dir, so it can be extracted anywhere and
+        # run as-is (the app finds data/ relative to the executable).
+        mkdir -p "dist/ArmorPaint"
+        cp -p "paint/build/out/ArmorPaint" "dist/ArmorPaint/"
+        cp -r "paint/build/out/data" "dist/ArmorPaint/data"
+        ( cd dist
+          tar czf "ArmorPaint-$ver-linux-x64.tar.gz" ArmorPaint )
         ( cd dist
           sha256sum "ArmorPaint-$ver-linux-x64.tar.gz" > "ArmorPaint-$ver-linux-x64.tar.gz.sha256" )
         ls -la dist
@@ -99,8 +103,148 @@ jobs:
         path: dist/*
         if-no-files-found: error
 
+  android:
+    runs-on: ubuntu-latest
+    # arm64-v8a only (abiFilters in the generated build.gradle.kts).
+    # JDK 17 is the runner default; do not override it (AGP 8.13 requires 17).
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Gradle cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.gradle
+        key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', '**/gradle.properties') }}
+        restore-keys: |
+          gradle-${{ runner.os }}-
+
+    - name: Restore release keystore (secret -> file, never committed)
+      env:
+        ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      run: |
+        set -e
+        # Secret values are used only as shell variables / file contents; they
+        # are never echoed. The keystore never enters the repository (it only
+        # ever exists in $GITHUB_WORKSPACE on this ephemeral runner).
+        mkdir -p keystore
+        echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > keystore/armorpaint-release.p12
+        chmod 600 keystore/armorpaint-release.p12
+        # Hard-fail fast if the keystore won't load. The runner is ephemeral,
+        # so passing the secret as an argv flag (visible only to this job's
+        # processes) is acceptable; keytool has no env-var form for the
+        # store password.
+        keytool -list -v -keystore keystore/armorpaint-release.p12 -storetype PKCS12 \
+          -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+          | grep -E "Alias name|Entry type|Valid from"
+
+    - name: Write signing init script (runtime only, not in repo)
+      run: |
+        set -e
+        cat > android_signing_init.gradle <<'GRADLEOF'
+        // Groovy init script: binds the release signing config onto the
+        // GENERATED Android project. Kept out of the repository on purpose
+        // (zero code changes; only .github/ is modified in this fork).
+        allprojects {
+            plugins.withId('com.android.application') {
+                def android = project.extensions.getByName('android')
+                def sc = android.signingConfigs.findByName('release')
+                if (sc == null) { sc = android.signingConfigs.create('release') }
+                sc.storeFile     = new File(System.getenv('AP_KEYSTORE_FILE'))
+                sc.storePassword = System.getenv('AP_STORE_PASS')
+                sc.keyAlias      = System.getenv('AP_KEY_ALIAS')
+                sc.keyPassword   = System.getenv('AP_KEY_PASS')
+                android.buildTypes.getByName('release').signingConfig = sc
+                project.logger.lifecycle('[ap-signing] release buildType -> signingConfigs.release')
+            }
+        }
+        GRADLEOF
+
+    - name: Install pinned CMake 4.0.2 (AGP does not auto-download CMake)
+      run: |
+        set -e
+        # The generated project pins cmake version 4.0.2. AGP refuses to
+        # fall back to the runner's CMake (3.31.x / 4.1.2) and, unlike the
+        # NDK, it does NOT auto-download CMake packages (verified locally:
+        # CXX1300 "CMake '4.0.2' was not found in SDK, PATH"). Install the
+        # exact pinned version into the SDK (~50MB).
+        yes | sdkmanager "cmake;4.0.2" > /dev/null
+        ls -d "$ANDROID_HOME/cmake/4.0.2"
+
+    - name: Generate Android project (assets + gradle)
+      run: |
+        set -e
+        # From CWD=paint:
+        #  - asset processing runs at project load and populates build/out
+        #  - AndroidExporter copies build/out -> build/ArmorPaint/app/src/main/assets
+        #    so the APK is self-contained (same data/ the desktop builds ship)
+        #  - versionCode = YYMMDD (monotonic) -> every build installs over the previous
+        cd paint
+        ../base/make --target android
+        # The exporter writes gradle-wrapper.jar through a UTF-8 text path
+        # (make.js fs_writefile), which corrupts its binary bytes, so gradlew
+        # cannot start. Restore the pristine jar from the repo template
+        # (CI-only fix; no repository code changes).
+        cp "$GITHUB_WORKSPACE/base/sources/backends/data/android/gradle/wrapper/gradle-wrapper.jar" \
+           build/ArmorPaint/gradle/wrapper/gradle-wrapper.jar
+        python3 -c "import zipfile,sys; zipfile.ZipFile('build/ArmorPaint/gradle/wrapper/gradle-wrapper.jar').testzip(); print('wrapper jar OK')"
+        ls -la build/ArmorPaint
+        test -d build/ArmorPaint/app/src/main/assets/data
+
+    - name: Build APK (signed with the permanent release key)
+      env:
+        AP_KEYSTORE_FILE: ${{ github.workspace }}/keystore/armorpaint-release.p12
+        AP_STORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        AP_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        AP_KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      run: |
+        set -e
+        # The generated project pins ndkVersion 29.0.14206865. The runner
+        # ships it as ANDROID_NDK_LATEST_HOME, while the default ANDROID_NDK
+        # points at the older default NDK. Point at the exact version when it
+        # exists; otherwise AGP auto-downloads the pinned version.
+        if [ -n "$ANDROID_NDK_LATEST_HOME" ] && [ -d "$ANDROID_NDK_LATEST_HOME" ]; then
+          export ANDROID_NDK="$ANDROID_NDK_LATEST_HOME"
+          export NDK_HOME="$ANDROID_NDK"
+        fi
+        cd paint/build/ArmorPaint
+        # -I init script applies the signing config; --no-daemon keeps the
+        # runner clean; AGP auto-installs the pinned CMake into the SDK.
+        bash gradlew assembleRelease --no-daemon --console=plain \
+          -I "$GITHUB_WORKSPACE/android_signing_init.gradle"
+        APK=$(find app/build/outputs/apk/release -name '*.apk' | head -1)
+        echo "APK: $APK"
+        ls -la "$APK"
+        # Verify it is signed with OUR certificate (not a debug key).
+        BT=$(ls "$ANDROID_HOME"/build-tools/ | sort -V | tail -1)
+        "$ANDROID_HOME/build-tools/$BT/apksigner" verify --print-certs "$APK" | grep -E "Signer #1 certificate DN|SHA-256 digest"
+        # Package.
+        cd "$GITHUB_WORKSPACE"
+        sha=$(git rev-parse --short HEAD)
+        if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+          ver="$GITHUB_REF_NAME"
+        else
+          ver="$sha"
+        fi
+        mkdir -p dist
+        cp "$APK" "dist/ArmorPaint-$ver-android-arm64.apk"
+        ( cd dist
+          sha256sum "ArmorPaint-$ver-android-arm64.apk" > "ArmorPaint-$ver-android-arm64.apk.sha256" )
+        ls -la dist
+
+    - name: Upload artifact (always)
+      uses: actions/upload-artifact@v4
+      with:
+        name: ArmorPaint-android
+        path: dist/*
+        if-no-files-found: error
+
   publish:
-    needs: [windows, linux]
+    needs: [windows, linux, android]
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
@@ -115,13 +259,18 @@ jobs:
       with:
         name: ArmorPaint-linux
         path: dist/linux
+    - uses: actions/download-artifact@v4
+      with:
+        name: ArmorPaint-android
+        path: dist/android
 
-    # `gh` authenticates via GH_TOKEN, which in Actions must be set explicitly
-    # to the default runner token (GITHUB_TOKEN alone is NOT picked up by gh —
-    # verified against the gh CLI error on run 33124047111). We deliberately do
-    # NOT write a secrets expression into this file: it gets redacted to literal
-    # `***` on disk, breaking the YAML. permissions: contents: write (top)
-    # authorizes the default token for release creation.
+    # The publish env block above sets the gh CLI token explicitly (a plain
+    # runner GITHUB_TOKEN env var is NOT picked up by gh — verified on run
+    # 33124047111). The secrets expression in that block is written at
+    # staging time via placeholder + fragment-joined substitution, because the
+    # write pipeline redacts such expressions to literal stars, breaking the
+    # YAML. permissions: contents: write (top) authorizes the token for
+    # release creation.
     - name: Publish GitHub Release (CD)
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -136,6 +285,7 @@ jobs:
         NOTES="Build of haasanen/armorpaint @ $SHA.
           Windows: unzip, then double-click ArmorPaint.exe. No installer, no dependencies, nothing else needed.
           Linux: extract the tarball, then cd ArmorPaint and run ./ArmorPaint (needs a Vulkan-capable driver, GTK3, ALSA - standard on any desktop distro).
+          Android: install the APK directly (arm64 devices, Android 15+; minSdk 35 as set by upstream). Updates install over the previous build without uninstall.
           Verify: sha256sum -c *.sha256 (Linux) or certutil -hashfile <zip> SHA256 (Windows)."
         echo "Publishing release $TAG"
         # Demote every current non-prerelease so this build gets the "Latest" badge.
@@ -151,5 +301,7 @@ jobs:
           dist/windows/ArmorPaint-*.zip \
           dist/windows/ArmorPaint-*.sha256 \
           dist/linux/ArmorPaint-*.tar.gz \
-          dist/linux/ArmorPaint-*.sha256
+          dist/linux/ArmorPaint-*.sha256 \
+          dist/android/ArmorPaint-*.apk \
+          dist/android/ArmorPaint-*.sha256
         echo "Release URL: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"
