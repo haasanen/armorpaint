@@ -1,0 +1,426 @@
+name: Release
+
+on:
+  push:
+    branches:
+    - main
+    tags:
+    - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+
+    # NOTE: no `shell: bash` here on purpose. base/make is a bash script whose
+    # platform.sh has NO Windows branch (OSTYPE=msys -> empty IRON_PLATFORM),
+    # so under Git Bash it fails. The default PowerShell shell resolves
+    # base/make.bat, which hardcodes tools\bin\windows_x64\amake.exe.
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Build (release)
+      run: |
+        cd paint
+        ..\base\make --compile
+        echo "--- build/out contents:"
+        Get-ChildItem build\out | Format-Table Name, Length
+
+    # font_cjk.ttc (20.3 MB, ~79% of the build) is NOT bundled: upstream's own
+    # design downloads the byte-identical file at runtime when a Japanese,
+    # Korean or Chinese locale is first selected (paint/sources/translator.c,
+    # file_download_to), falling back to English if the download fails.
+    # Non-CJK locales never load it. Dropping it before packaging brings the
+    # zip to ~3 MB, matching the official site's builds.
+    - name: Exclude runtime-downloaded CJK font (keep download small)
+      run: |
+        $f = "paint\build\out\data\font_cjk.ttc"
+        if (Test-Path $f) {
+          Write-Host ("excluding data/font_cjk.ttc ({0:N1} MB) - downloaded at runtime when a CJK locale is first used" -f ((Get-Item $f).Length / 1MB))
+          Remove-Item $f
+        }
+
+    - name: Package
+      run: |
+        $sha = git rev-parse --short HEAD
+        if ($env:GITHUB_REF -like 'refs/tags/v*') {
+          $ver = $env:GITHUB_REF_NAME
+        } else {
+          $ver = $sha
+        }
+        New-Item -ItemType Directory -Force dist | Out-Null
+        # Layout: ArmorPaint/ contains the exe + data dir, matching the
+        # runtime's exe-relative asset lookup (base/sources/iron.h kickstart).
+        New-Item -ItemType Directory -Force "dist\ArmorPaint" | Out-Null
+        Copy-Item "paint\build\out\ArmorPaint.exe" "dist\ArmorPaint\"
+        Copy-Item -Recurse "paint\build\out\data" "dist\ArmorPaint\data"
+        Set-Location dist
+        7z a "ArmorPaint-$ver-windows-x64.zip" ArmorPaint | Out-Null
+        $h = Get-FileHash "ArmorPaint-$ver-windows-x64.zip" -Algorithm SHA256
+        Set-Content "ArmorPaint-$ver-windows-x64.zip.sha256" "$($h.Hash.ToLower())  ArmorPaint-$ver-windows-x64.zip"
+        Get-ChildItem | Format-Table Name, Length
+
+    - name: Upload artifact (always)
+      uses: actions/upload-artifact@v4
+      with:
+        name: ArmorPaint-windows
+        path: dist/*
+        if-no-files-found: error
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Apt Install
+      run: sudo apt-get update && sudo apt install --yes --quiet make clang libvulkan-dev libgtk-3-dev libasound2-dev
+
+    - name: Build (release)
+      run: |
+        cd paint
+        ../base/make --compile
+        echo "--- build/out contents:"
+        ls -la build/out
+
+    # Exclude the runtime-downloaded CJK font before packaging (same reason as
+    # the Windows job / paint/sources/translator.c) so the tarball stays ~3 MB.
+    - name: Exclude runtime-downloaded CJK font (keep download small)
+      run: |
+        set -e
+        F="paint/build/out/data/font_cjk.ttc"
+        if [ -f "$F" ]; then
+          echo "excluding data/font_cjk.ttc ($(du -h "$F" | cut -f1)) - downloaded at runtime when a CJK locale is first used"
+          rm "$F"
+        fi
+
+    - name: Package
+      run: |
+        set -e
+        sha=$(git rev-parse --short HEAD)
+        if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+          ver="$GITHUB_REF_NAME"
+        else
+          ver="$sha"
+        fi
+        # Same layout as the Windows zip: a single ArmorPaint/ folder with
+        # the executable + data dir, so it can be extracted anywhere and
+        # run as-is (the app finds data/ relative to the executable).
+        mkdir -p "dist/ArmorPaint"
+        cp -p "paint/build/out/ArmorPaint" "dist/ArmorPaint/"
+        cp -r "paint/build/out/data" "dist/ArmorPaint/data"
+        ( cd dist
+          tar czf "ArmorPaint-$ver-linux-x64.tar.gz" ArmorPaint )
+        ( cd dist
+          sha256sum "ArmorPaint-$ver-linux-x64.tar.gz" > "ArmorPaint-$ver-linux-x64.tar.gz.sha256" )
+        ls -la dist
+
+    - name: Upload artifact (always)
+      uses: actions/upload-artifact@v4
+      with:
+        name: ArmorPaint-linux
+        path: dist/*
+        if-no-files-found: error
+
+  android:
+    runs-on: ubuntu-latest
+    # arm64-v8a only (abiFilters in the generated build.gradle.kts).
+    # JDK 17 is the runner default; do not override it (AGP 8.13 requires 17).
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Gradle cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.gradle
+        key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', '**/gradle.properties') }}
+        restore-keys: |
+          gradle-${{ runner.os }}-
+
+    - name: Restore release keystore (secret -> file, never committed)
+      env:
+        ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      run: |
+        set -e
+        # Secret values are used only as shell variables / file contents; they
+        # are never echoed. The keystore never enters the repository (it only
+        # ever exists in $GITHUB_WORKSPACE on this ephemeral runner).
+        mkdir -p keystore
+        echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > keystore/armorpaint-release.p12
+        chmod 600 keystore/armorpaint-release.p12
+        # Hard-fail fast if the keystore won't load. The runner is ephemeral,
+        # so passing the secret as an argv flag (visible only to this job's
+        # processes) is acceptable; keytool has no env-var form for the
+        # store password.
+        keytool -list -v -keystore keystore/armorpaint-release.p12 -storetype PKCS12 \
+          -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+          | grep -E "Alias name|Entry type|Valid from"
+
+    - name: Write signing init script (runtime only, not in repo)
+      run: |
+        set -e
+        cat > android_signing_init.gradle <<'GRADLEOF'
+        // Groovy init script: binds the release signing config onto the
+        // GENERATED Android project. Kept out of the repository on purpose
+        // (zero code changes; only .github/ is modified in this fork).
+        allprojects {
+            plugins.withId('com.android.application') {
+                def android = project.extensions.getByName('android')
+                def sc = android.signingConfigs.findByName('release')
+                if (sc == null) { sc = android.signingConfigs.create('release') }
+                sc.storeFile     = new File(System.getenv('AP_KEYSTORE_FILE'))
+                sc.storePassword = System.getenv('AP_STORE_PASS')
+                sc.keyAlias      = System.getenv('AP_KEY_ALIAS')
+                sc.keyPassword   = System.getenv('AP_KEY_PASS')
+                android.buildTypes.getByName('release').signingConfig = sc
+                project.logger.lifecycle('[ap-signing] release buildType -> signingConfigs.release')
+            }
+        }
+        GRADLEOF
+
+    - name: Install pinned CMake 4.0.2 (AGP does not auto-download CMake)
+      run: |
+        set -e
+        # The generated project pins cmake version 4.0.2. AGP refuses to
+        # fall back to the runner's CMake (3.31.x) and, unlike the NDK, it
+        # does NOT auto-download CMake packages (verified locally: CXX1300
+        # "CMake '4.0.2' was not found in SDK, PATH"). Install it via
+        # sdkmanager; the runner does NOT put sdkmanager on PATH, so
+        # discover it (cmdline-tools/<ver>/bin). Last resort: pip installs
+        # the cmake binary onto PATH, which the AGP cmake handler also
+        # searches.
+        if [ -d "$ANDROID_HOME/cmake/4.0.2" ]; then
+          echo "CMake 4.0.2 already in SDK"
+          exit 0
+        fi
+        SM=$(ls "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | head -1 || true)
+        if [ -n "$SM" ] && [ -x "$SM" ]; then
+          yes | "$SM" --sdk_root="$ANDROID_HOME" "cmake;4.0.2"
+          test -d "$ANDROID_HOME/cmake/4.0.2"
+        else
+          echo "sdkmanager not found — installing cmake via pip"
+          python3 -m pip install --user "cmake==4.0.2"
+          cmake --version
+          # Put it where the AGP cmake handler looks, so later steps don't
+          # need a PATH change.
+          mkdir -p "$ANDROID_HOME/cmake/4.0.2/bin"
+          ln -s "$(command -v cmake)" "$ANDROID_HOME/cmake/4.0.2/bin/cmake"
+        fi
+        echo "CMake ready for the android build"
+
+    - name: Generate Android project (assets + gradle)
+      run: |
+        set -e
+        # From CWD=paint:
+        #  - asset processing runs at project load and populates build/out
+        #  - AndroidExporter copies build/out -> build/ArmorPaint/app/src/main/assets
+        #    so the APK is self-contained (same data/ the desktop builds ship)
+        #  - versionCode = YYMMDD (monotonic) -> every build installs over the previous
+        cd paint
+        ../base/make --target android
+        # The exporter writes gradle-wrapper.jar through a UTF-8 text path
+        # (make.js fs_writefile), which corrupts its binary bytes, so gradlew
+        # cannot start. Restore the pristine jar from the repo template
+        # (CI-only fix; no repository code changes).
+        cp "$GITHUB_WORKSPACE/base/sources/backends/data/android/gradle/wrapper/gradle-wrapper.jar" \
+           build/ArmorPaint/gradle/wrapper/gradle-wrapper.jar
+        python3 -c "import zipfile,sys; zipfile.ZipFile('build/ArmorPaint/gradle/wrapper/gradle-wrapper.jar').testzip(); print('wrapper jar OK')"
+        ls -la build/ArmorPaint
+        test -d build/ArmorPaint/app/src/main/assets/data
+
+    - name: Stamp versionName + version.json (version, YYMMDD date, commit)
+      run: |
+        set -e
+        # The Android exporter (base/project.js) hardcodes versionName to the
+        # build date (YYMMDD). Rewrite the GENERATED gradle file (build output,
+        # not repository source) so Settings > Apps shows
+        # "v1.0 rc2 (2026-08-28) - <sha>" — the upstream version from
+        # paint/sources/globals.h plus the ISO build date and our commit.
+        # versionCode stays numeric YYMMDD (monotonic, keeps install-over-
+        # update working) - only the displayed versionName uses the ISO date.
+        VER=$(sed -n 's/^char \*manifest_version * = *"\([^"]*\)".*/\1/p' paint/sources/globals.h | head -1)
+        SHA=$(git rev-parse --short=7 HEAD)
+        DATE=$(date -u +%Y-%m-%d)
+        if [ -n "$VER" ]; then
+          VNAME="v$VER ($DATE) - $SHA"
+          F=paint/build/ArmorPaint/app/build.gradle.kts
+          python3 - "$F" "$VNAME" <<'PYEOF'
+        import re, sys
+        f, v = sys.argv[1], sys.argv[2]
+        txt = open(f).read()
+        new = re.sub(r'versionName = "[^"]*"', 'versionName = "%s"' % v, txt, count=1)
+        assert new != txt, "versionName line not found in generated gradle"
+        open(f, "w").write(new)
+        PYEOF
+          echo "versionName -> $VNAME"
+          grep -n "versionName" "$F"
+        else
+          echo "manifest_version not found in globals.h - keeping generator default"
+        fi
+
+    # The CJK font is copied into the generated APK assets (assets/data) by
+    # the exporter. Remove it before gradle packages so it is out of the APK;
+    # the app downloads it at runtime for CJK locales (same as desktop), so
+    # the APK stays small.
+    - name: Exclude runtime-downloaded CJK font from APK
+      run: |
+        set -e
+        F="paint/build/ArmorPaint/app/src/main/assets/data/font_cjk.ttc"
+        if [ -f "$F" ]; then
+          echo "excluding assets/data/font_cjk.ttc ($(du -h "$F" | cut -f1)) - downloaded at runtime when a CJK locale is first used"
+          rm "$F"
+        fi
+
+    - name: Build APK (signed with the permanent release key)
+      env:
+        AP_KEYSTORE_FILE: ${{ github.workspace }}/keystore/armorpaint-release.p12
+        AP_STORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        AP_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        AP_KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      run: |
+        set -e
+        # The generated project pins ndkVersion 29.0.14206865. The runner
+        # ships it as ANDROID_NDK_LATEST_HOME, while the default ANDROID_NDK
+        # points at the older default NDK. Point at the exact version when it
+        # exists; otherwise AGP auto-downloads the pinned version.
+        if [ -n "$ANDROID_NDK_LATEST_HOME" ] && [ -d "$ANDROID_NDK_LATEST_HOME" ]; then
+          export ANDROID_NDK="$ANDROID_NDK_LATEST_HOME"
+          export NDK_HOME="$ANDROID_NDK"
+        fi
+        cd paint/build/ArmorPaint
+        # -I init script applies the signing config; --no-daemon keeps the
+        # runner clean; AGP auto-installs the pinned CMake into the SDK.
+        bash gradlew assembleRelease --no-daemon --console=plain \
+          -I "$GITHUB_WORKSPACE/android_signing_init.gradle"
+        APK="$PWD/$(find app/build/outputs/apk/release -name '*.apk' | head -1)"
+        echo "APK: $APK"
+        ls -la "$APK"
+        # Verify it is signed with OUR certificate (not a debug key).
+        BT=$(ls "$ANDROID_HOME"/build-tools/ | sort -V | tail -1)
+        "$ANDROID_HOME/build-tools/$BT/apksigner" verify --print-certs "$APK" | grep -E "Signer #1 certificate DN|SHA-256 digest"
+        # Package.
+        cd "$GITHUB_WORKSPACE"
+        sha=$(git rev-parse --short HEAD)
+        if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+          ver="$GITHUB_REF_NAME"
+        else
+          ver="$sha"
+        fi
+        mkdir -p dist
+        cp "$APK" "dist/ArmorPaint-$ver-android-arm64.apk"
+        ( cd dist
+          sha256sum "ArmorPaint-$ver-android-arm64.apk" > "ArmorPaint-$ver-android-arm64.apk.sha256" )
+        ls -la dist
+
+    - name: Upload artifact (always)
+      uses: actions/upload-artifact@v4
+      with:
+        name: ArmorPaint-android
+        path: dist/*
+        if-no-files-found: error
+
+  publish:
+    needs: [windows, linux, android]
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 1
+
+    - uses: actions/download-artifact@v4
+      with:
+        name: ArmorPaint-windows
+        path: dist/windows
+    - uses: actions/download-artifact@v4
+      with:
+        name: ArmorPaint-linux
+        path: dist/linux
+    - uses: actions/download-artifact@v4
+      with:
+        name: ArmorPaint-android
+        path: dist/android
+
+    # `gh` authenticates via GH_TOKEN, which in Actions must be set explicitly
+    # to the default runner token (GITHUB_TOKEN alone is NOT picked up by gh —
+    # verified against the gh CLI error on run 33124047111). The
+    # permissions: contents: write block at the top of this workflow is what
+    # authorizes that default token for release creation.
+    - name: Publish GitHub Release (CD)
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        set -e
+        if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+          TAG="$GITHUB_REF_NAME"
+        else
+          TAG="build-$(git rev-parse --short=7 HEAD)"
+        fi
+        SHA=$(git rev-parse --short=7 HEAD)
+        # Upstream version straight from the source we built (pulled in by the
+        # daily auto-sync), so the release title tracks upstream automatically.
+        UPVER=$(sed -n 's/^char \*manifest_version * = *"\([^"]*\)".*/\1/p' paint/sources/globals.h | head -1)
+        if [ -n "$UPVER" ]; then
+          # Build date exactly as shipped in the builds: read it back from
+          # the linux artifact's data/version.json (plain text file) so the
+          # title always matches what the apps display. Fallback: today UTC.
+          DATE=$(tar xzf dist/linux/ArmorPaint-*.tar.gz ArmorPaint/data/version.json -O 2>/dev/null \
+            | python3 -c "import json,sys; print(json.load(sys.stdin)['date'])" 2>/dev/null || date -u +%Y-%m-%d)
+          echo "version date from build artifacts: $DATE"
+          TITLE="v$UPVER ($DATE) - $SHA"
+        else
+          TITLE="$TAG"
+        fi
+        echo "Release title: $TITLE"
+        NOTES="## $TITLE
+
+        Fork of [armory3d/armorpaint](https://github.com/armory3d/armorpaint), auto-synced with upstream daily.
+
+        **Versioning** - v<upstream version> (build date) - <commit>. Compare it with the string the app shows (About box / status bar on desktop, Settings > Apps > ArmorPaint on Android) to check whether a newer build exists.
+
+        ### Windows
+        Unzip, then double-click **ArmorPaint.exe**. No installer, no dependencies.
+
+        ### Linux
+        Extract the tarball, then run **./ArmorPaint** from the ArmorPaint folder. Needs a Vulkan-capable GPU driver, GTK3 and ALSA (standard on any desktop distro).
+
+        ### Android
+        Install the APK (arm64 devices, Android 15+). Updates install over the previous build without uninstall.
+
+        > Note: the ~20 MB CJK font is not bundled. The app downloads it automatically the first time you switch to a Japanese, Korean or Chinese locale.
+
+        ### Verify integrity
+        - Linux / macOS: sha256sum -c ArmorPaint-*.sha256
+        - Windows: certutil -hashfile ArmorPaint-*.zip SHA256"
+        echo "Publishing release $TAG"
+        # No demotion needed (verified 2026-08-28 with live API experiments):
+        # with every release kept non-prerelease, GitHub marks the newest
+        # build-<sha> release as "Latest" on its own - un-prereleasing an
+        # older build did not steal the badge. The release title carries the
+        # full version string; the tag itself stays build-<sha> because git
+        # tag names cannot contain spaces.
+
+        # Idempotent: replace a release with the same tag (e.g. re-run).
+        # `gh release view TAG` exits 0 even when the release does not exist
+        # (prints "Not Found"), so probe with --json which exits non-zero.
+        if gh release view "$TAG" --json tagName >/dev/null 2>&1; then
+          gh release delete "$TAG" --yes --cleanup-tag || true
+        fi
+        gh release create "$TAG" --title "$TITLE" --notes "$NOTES" \
+          dist/windows/ArmorPaint-*.zip \
+          dist/windows/ArmorPaint-*.sha256 \
+          dist/linux/ArmorPaint-*.tar.gz \
+          dist/linux/ArmorPaint-*.sha256 \
+          dist/android/ArmorPaint-*.apk \
+          dist/android/ArmorPaint-*.sha256
+        echo "Release URL: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"
