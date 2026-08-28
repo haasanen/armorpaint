@@ -403,7 +403,7 @@ jobs:
               MORE=$(printf '\n  ... and %s more commit(s) - full list in the repository history.' "$((NCOMMITS - 30))")
             fi
             if [ "$NCOMMITS" = 1 ]; then PL=""; else PL="s"; fi
-            CHANGELOG=$(printf '\n### Changes since the previous build (%s upstream commit%s)\n%s%s\n' "$NCOMMITS" "$PL" "$CHANGES" "$MORE")
+            CHANGELOG=$(printf '\n### Changes since the previous build (%s commit%s)\n%s%s\n' "$NCOMMITS" "$PL" "$CHANGES" "$MORE")
             echo "changelog: $NCOMMITS upstream commit(s) since $PREV_TAG"
           fi
         fi
