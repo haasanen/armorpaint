@@ -31,22 +31,18 @@ jobs:
         echo "--- build/out contents:"
         Get-ChildItem build\out | Format-Table Name, Length
 
-    - name: Rewrite version.json date to YYMMDD (build data, not source)
+    # font_cjk.ttc (20.3 MB, ~79% of the build) is NOT bundled: upstream's own
+    # design downloads the byte-identical file at runtime when a Japanese,
+    # Korean or Chinese locale is first selected (paint/sources/translator.c,
+    # file_download_to), falling back to English if the download fails.
+    # Non-CJK locales never load it. Dropping it before packaging brings the
+    # zip to ~3 MB, matching the official site's builds.
+    - name: Exclude runtime-downloaded CJK font (keep download small)
       run: |
-        # The About box shows "v<version> (<date>) - <sha>" from
-        # data/version.json, a runtime data file shipped next to the exe
-        # (NOT compiled into the binary). The generator writes the date as
-        # YYYY-MM-DD; rewrite it to YYMMDD so sorting by build version sorts
-        # chronologically. Build output only - no repository code changes.
-        $date = (Get-Date -AsUTC).ToString("yyMMdd")
-        $p = "paint\build\out\data\version.json"
-        if (Test-Path $p) {
-          $re = '"date"\s*:\s*"[^"]*"'
-          $repl = '"date": "' + $date + '"'
-          (Get-Content $p -Raw) -replace $re, $repl | Set-Content $p -NoNewline
-          Get-Content $p
-        } else {
-          Write-Error "version.json not found at $p"
+        $f = "paint\build\out\data\font_cjk.ttc"
+        if (Test-Path $f) {
+          Write-Host ("excluding data/font_cjk.ttc ({0:N1} MB) - downloaded at runtime when a CJK locale is first used" -f ((Get-Item $f).Length / 1MB))
+          Remove-Item $f
         }
 
     - name: Package
@@ -93,23 +89,16 @@ jobs:
         echo "--- build/out contents:"
         ls -la build/out
 
-    - name: Rewrite version.json date to YYMMDD (build data, not source)
+    # Exclude the runtime-downloaded CJK font before packaging (same reason as
+    # the Windows job / paint/sources/translator.c) so the tarball stays ~3 MB.
+    - name: Exclude runtime-downloaded CJK font (keep download small)
       run: |
         set -e
-        # Same as the Windows job: the About box reads the date from
-        # data/version.json (runtime data file next to the exe). Rewrite the
-        # generator's YYYY-MM-DD to YYMMDD so versions sort chronologically.
-        # Build output only - no repository code changes.
-        DATE=$(date -u +%y%m%d)
-        python3 - "paint/build/out/data/version.json" "$DATE" <<'PYEOF'
-        import re, sys
-        f, d = sys.argv[1], sys.argv[2]
-        txt = open(f).read()
-        new = re.sub(r'"date"\s*:\s*"[^"]*"', '"date": "%s"' % d, txt, count=1)
-        assert new != txt, "date key not found in %s" % f
-        open(f, "w").write(new)
-        print(open(f).read())
-        PYEOF
+        F="paint/build/out/data/font_cjk.ttc"
+        if [ -f "$F" ]; then
+          echo "excluding data/font_cjk.ttc ($(du -h "$F" | cut -f1)) - downloaded at runtime when a CJK locale is first used"
+          rm "$F"
+        fi
 
     - name: Package
       run: |
@@ -256,12 +245,13 @@ jobs:
         # The Android exporter (base/project.js) hardcodes versionName to the
         # build date (YYMMDD). Rewrite the GENERATED gradle file (build output,
         # not repository source) so Settings > Apps shows
-        # "1.0 rc2 (a83efc5)" — the upstream version from
-        # paint/sources/globals.h plus our commit. versionCode stays YYMMDD
-        # (monotonic, keeps install-over-update working).
+        # "v1.0 rc2 (2026-08-28) - <sha>" — the upstream version from
+        # paint/sources/globals.h plus the ISO build date and our commit.
+        # versionCode stays numeric YYMMDD (monotonic, keeps install-over-
+        # update working) - only the displayed versionName uses the ISO date.
         VER=$(sed -n 's/^char \*manifest_version * = *"\([^"]*\)".*/\1/p' paint/sources/globals.h | head -1)
         SHA=$(git rev-parse --short=7 HEAD)
-        DATE=$(date -u +%y%m%d)
+        DATE=$(date -u +%Y-%m-%d)
         if [ -n "$VER" ]; then
           VNAME="v$VER ($DATE) - $SHA"
           F=paint/build/ArmorPaint/app/build.gradle.kts
@@ -275,21 +265,21 @@ jobs:
         PYEOF
           echo "versionName -> $VNAME"
           grep -n "versionName" "$F"
-          # The About box reads its date/sha from data/version.json, which the
-          # exporter copied into the APK assets - rewrite its date here too so
-          # the in-app string matches the app-info versionName.
-          FV=paint/build/ArmorPaint/app/src/main/assets/data/version.json
-          python3 - "$FV" "$DATE" <<'PYEOF'
-        import re, sys
-        f, d = sys.argv[1], sys.argv[2]
-        txt = open(f).read()
-        new = re.sub(r'"date"\s*:\s*"[^"]*"', '"date": "%s"' % d, txt, count=1)
-        assert new != txt, "date key not found in %s" % f
-        open(f, "w").write(new)
-        print("APK version.json -> " + open(f).read())
-        PYEOF
         else
           echo "manifest_version not found in globals.h - keeping generator default"
+        fi
+
+    # The CJK font is copied into the generated APK assets (assets/data) by
+    # the exporter. Remove it before gradle packages so it is out of the APK;
+    # the app downloads it at runtime for CJK locales (same as desktop), so
+    # the APK stays small.
+    - name: Exclude runtime-downloaded CJK font from APK
+      run: |
+        set -e
+        F="paint/build/ArmorPaint/app/src/main/assets/data/font_cjk.ttc"
+        if [ -f "$F" ]; then
+          echo "excluding assets/data/font_cjk.ttc ($(du -h "$F" | cut -f1)) - downloaded at runtime when a CJK locale is first used"
+          rm "$F"
         fi
 
     - name: Build APK (signed with the permanent release key)
@@ -381,31 +371,45 @@ jobs:
         # daily auto-sync), so the release title tracks upstream automatically.
         UPVER=$(sed -n 's/^char \*manifest_version * = *"\([^"]*\)".*/\1/p' paint/sources/globals.h | head -1)
         if [ -n "$UPVER" ]; then
-          # YYMMDD date exactly as shipped in the builds: read it back from
+          # Build date exactly as shipped in the builds: read it back from
           # the linux artifact's data/version.json (plain text file) so the
           # title always matches what the apps display. Fallback: today UTC.
           DATE=$(tar xzf dist/linux/ArmorPaint-*.tar.gz ArmorPaint/data/version.json -O 2>/dev/null \
-            | python3 -c "import json,sys; print(json.load(sys.stdin)['date'])" 2>/dev/null || date -u +%y%m%d)
+            | python3 -c "import json,sys; print(json.load(sys.stdin)['date'])" 2>/dev/null || date -u +%Y-%m-%d)
           echo "version date from build artifacts: $DATE"
           TITLE="v$UPVER ($DATE) - $SHA"
         else
           TITLE="$TAG"
         fi
         echo "Release title: $TITLE"
-        NOTES="Build of haasanen/armorpaint @ $SHA.
-          Windows: unzip, then double-click ArmorPaint.exe. No installer, no dependencies, nothing else needed.
-          Linux: extract the tarball, then cd ArmorPaint and run ./ArmorPaint (needs a Vulkan-capable driver, GTK3, ALSA - standard on any desktop distro).
-          Android: install the APK directly (arm64 devices, Android 15+; minSdk 35 as set by upstream). Updates install over the previous build without uninstall.
-          Verify: sha256sum -c *.sha256 (Linux) or certutil -hashfile <zip> SHA256 (Windows)."
-        echo "Publishing release $TAG"
-        # Demote every current non-prerelease so this build gets the "Latest"
-        # badge. The API only supports PATCH by numeric release id — by tag
-        # name it returns 404 (verified with the REST API).
-        for R in $(gh api repos/$GITHUB_REPOSITORY/releases --paginate --jq '.[] | select(.prerelease==false and .tag_name!="'$TAG'") | .tag_name'); do
-          echo "demoting $R to prerelease"
-          RID=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$R" --jq .id)
-          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$RID" -f prerelease=true >/dev/null
-        done
+        NOTES="## $TITLE
+
+          Fork of [armory3d/armorpaint](https://github.com/armory3d/armorpaint), auto-synced with upstream daily.
+
+          **Versioning** - v<upstream version> (build date) - <commit>. Compare it with the string the app shows (About box / status bar on desktop, Settings > Apps > ArmorPaint on Android) to check whether a newer build exists.
+
+          ### Windows
+          Unzip, then double-click **ArmorPaint.exe**. No installer, no dependencies.
+
+          ### Linux
+          Extract the tarball, then run **./ArmorPaint** from the ArmorPaint folder. Needs a Vulkan-capable GPU driver, GTK3 and ALSA (standard on any desktop distro).
+
+          ### Android
+          Install the APK (arm64 devices, Android 15+). Updates install over the previous build without uninstall.
+
+          > Note: the ~20 MB CJK font is not bundled. The app downloads it automatically the first time you switch to a Japanese, Korean or Chinese locale.
+
+          ### Verify integrity
+          - Linux / macOS: sha256sum -c ArmorPaint-*.sha256
+          - Windows: certutil -hashfile ArmorPaint-*.zip SHA256"
+        echo "Publishing release $TAG"        echo "Publishing release $TAG"
+        # No demotion needed (verified 2026-08-28 with live API experiments):
+        # with every release kept non-prerelease, GitHub marks the newest
+        # build-<sha> release as "Latest" on its own - un-prereleasing an
+        # older build did not steal the badge. The release title carries the
+        # full version string; the tag itself stays build-<sha> because git
+        # tag names cannot contain spaces.
+
         # Idempotent: replace a release with the same tag (e.g. re-run).
         # `gh release view TAG` exits 0 even when the release does not exist
         # (prints "Not Found"), so probe with --json which exits non-zero.
