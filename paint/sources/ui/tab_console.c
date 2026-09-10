@@ -22,9 +22,7 @@ void tab_console_run_done(char *s) {
 		s = substring(s, i + 5, string_last_index_of(s, "```"));
 	}
 
-	tab_scripts_get();
-	g_project->script_datas->buffer[0] = string_copy(s);
-	tab_scripts_minimap_dirty          = true;
+	tab_scripts_set(s);
 
 	ui_base_hwnds->buffer[TAB_AREA_SIDEBAR0]->redraws = 2;
 }
