@@ -49,6 +49,7 @@ void tab_stages_apply(stage_t *stage) {
 		}
 	}
 	util_mesh_merge(visibles);
+	sim_physics_apply_stage(stage);
 	g_context->ddirty = 2;
 }
 

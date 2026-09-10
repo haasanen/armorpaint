@@ -222,10 +222,31 @@ string_array_t *text_to_text_node_claude_args(char *dir, char *prompt) {
 	return argv;
 }
 
+string_array_t *text_to_text_node_codex_args(char *dir, char *prompt) {
+	string_array_t *argv = any_array_create_from_raw(
+	    (void *[]){
+	        "codex",
+	        "exec",
+	        "--skip-git-repo-check",
+	        "--sandbox",
+	        "read-only",
+	        "--color",
+	        "never",
+	        "--cd",
+	        dir, // Pick up AGENTS.md
+	        "--output-last-message",
+	        string("%s%sresult.txt", neural_node_dir(), PATH_SEP),
+	        prompt,
+	        NULL,
+	    },
+	    13);
+	return argv;
+}
+
 void text_to_text_node_check_result(void (*done)(char *)) {
 	iron_delay_idle_sleep();
 	if (iron_exec_async_done == 1) {
-		char *file = string("%s%soutput.txt", neural_node_dir(), PATH_SEP);
+		char *file = string("%s%sresult.txt", neural_node_dir(), PATH_SEP);
 		if (iron_file_exists(file)) {
 			buffer_t *b = iron_load_blob(file);
 			char     *s = sys_buffer_to_string(b);
@@ -249,8 +270,9 @@ void text_to_text_node_check_result(void (*done)(char *)) {
 void text_to_text_node_clear(void) {
 	char *dir = neural_node_dir();
 	iron_delete_file(string("%s%sprompt.txt", dir, PATH_SEP));
-	iron_delete_file(string("%s%soutput.txt", dir, PATH_SEP));
+	iron_delete_file(string("%s%sresult.txt", dir, PATH_SEP));
 	iron_delete_file(string("%s%sapi.h", dir, PATH_SEP));
+	iron_delete_file(string("%s%sAGENTS.md", dir, PATH_SEP));
 	char *gdir = text_to_text_node_grok_dir();
 	iron_delete_file(string("%s%sAGENTS.md", gdir, PATH_SEP));
 	iron_delete_file(string("%s%sprompt.txt", gdir, PATH_SEP));
@@ -275,6 +297,10 @@ void text_to_text_node_run(char *prompt, void (*done)(char *)) {
 		iron_file_save_bytes(string("%s%sapi.h", dir, PATH_SEP), sys_string_to_buffer(text_to_text_node_reference()), 0);
 		argv = text_to_text_node_claude_args(dir, prompt);
 	}
+	else if (text_to_text_node_backend == CONSOLE_MODEL_CODEX) {
+		iron_file_save_bytes(string("%s%sAGENTS.md", dir, PATH_SEP), sys_string_to_buffer(text_to_text_node_reference()), 0);
+		argv = text_to_text_node_codex_args(dir, prompt);
+	}
 	else if (text_to_text_node_backend == CONSOLE_MODEL_GROK) {
 		char *gdir = text_to_text_node_grok_dir();
 		if (string_equals(file_read_directory(gdir)->buffer[0], "")) {
@@ -293,7 +319,10 @@ void text_to_text_node_run(char *prompt, void (*done)(char *)) {
 		argv = text_to_text_node_qwen_args(dir);
 	}
 
-	iron_exec_async_output_file = string("%s%soutput.txt", dir, PATH_SEP);
+	char *res = string("%s%sresult.txt", dir, PATH_SEP);
+	iron_delete_file(res);
+	iron_exec_async_output_file = text_to_text_node_backend == CONSOLE_MODEL_CODEX ? NULL : res;
 	iron_exec_async(argv->buffer[0], argv->buffer);
+	iron_exec_async_output_file = NULL;
 	sys_notify_on_update(text_to_text_node_check_result, done);
 }

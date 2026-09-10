@@ -212,12 +212,17 @@ char *string_array_join(any_array_t *a, char *separator) {
 	}
 
 	char *r = string_alloc(len + 1);
+	char *w = r;
 	for (int i = 0; i < a->length; ++i) {
-		strcat(r, a->buffer[i]);
+		size_t l = strlen(a->buffer[i]);
+		memcpy(w, a->buffer[i], l);
+		w += l;
 		if (i < a->length - 1) {
-			strcat(r, separator);
+			memcpy(w, separator, len_sep);
+			w += len_sep;
 		}
 	}
+	*w = '\0';
 	return r;
 }
 

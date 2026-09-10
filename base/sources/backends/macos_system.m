@@ -1178,6 +1178,7 @@ void iron_exec_async(const char *path, char *argv[]) {
 		i++;
 	}
 	[task setArguments:args];
+	[task setStandardInput:[NSFileHandle fileHandleWithNullDevice]];
 	if (iron_exec_async_output_file != NULL) {
 		NSString *output_path = [NSString stringWithUTF8String:iron_exec_async_output_file];
 		[[NSFileManager defaultManager] createFileAtPath:output_path contents:nil attributes:nil];

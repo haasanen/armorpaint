@@ -17,28 +17,29 @@
 //    ██║   ╚██████╔╝██║  ██╗███████╗██║ ╚████║
 //    ╚═╝    ╚═════╝ ╚═╝  ╚═╝╚══════╝╚═╝  ╚═══╝
 
-#define MINIC_TOK_LIST                                                                                                                                       \
-	X(TOK_INT, "'int'")                                                                                                                                      \
-	X(TOK_FLOAT, "'float'")                                                                                                                                  \
-	X(TOK_CHAR, "'char'")                                                                                                                                    \
-	X(TOK_DOUBLE, "'double'")                                                                                                                                \
-	X(TOK_BOOL, "'bool'")                                                                                                                                    \
-	X(TOK_RETURN, "'return'")                                                                                                                                \
-	X(TOK_IF, "'if'")                                                                                                                                        \
-	X(TOK_ELSE, "'else'")                                                                                                                                    \
-	X(TOK_WHILE, "'while'")                                                                                                                                  \
-	X(TOK_FOR, "'for'")                                                                                                                                      \
-	X(TOK_BREAK, "'break'")                                                                                                                                  \
-	X(TOK_CONTINUE, "'continue'")                                                                                                                            \
-	X(TOK_STRUCT, "'struct'") X(TOK_TYPEDEF, "'typedef'") X(TOK_ENUM, "'enum'") X(TOK_VOID, "'void'") X(TOK_IDENT, "identifier") X(TOK_NUMBER, "number")     \
-	    X(TOK_CHAR_LIT, "char literal") X(TOK_STR_LIT, "string literal") X(TOK_LPAREN, "'('") X(TOK_RPAREN, "')'") X(TOK_LBRACE, "'{'") X(TOK_RBRACE, "'}'") \
-	        X(TOK_LBRACKET, "'['") X(TOK_RBRACKET, "']'") X(TOK_SEMICOLON, "';'") X(TOK_COMMA, "','") X(TOK_ASSIGN, "'='") X(TOK_PLUS_ASSIGN, "'+='")        \
-	            X(TOK_MINUS_ASSIGN, "'-='") X(TOK_MUL_ASSIGN, "'*='") X(TOK_DIV_ASSIGN, "'/='") X(TOK_MOD_ASSIGN, "'%='") X(TOK_SHL_ASSIGN, "'<<='")         \
-	                X(TOK_SHR_ASSIGN, "'>>='") X(TOK_AND_ASSIGN, "'&='") X(TOK_OR_ASSIGN, "'|='") X(TOK_XOR_ASSIGN, "'^='") X(TOK_EQ, "'=='")                \
-	                    X(TOK_NEQ, "'!='") X(TOK_LT, "'<'") X(TOK_GT, "'>'") X(TOK_LE, "'<='") X(TOK_GE, "'>='") X(TOK_AND, "'&&'") X(TOK_OR, "'||'")        \
-	                        X(TOK_NOT, "'!'") X(TOK_AMP, "'&'") X(TOK_PLUS, "'+'") X(TOK_MINUS, "'-'") X(TOK_INC, "'++'") X(TOK_DEC, "'--'")                 \
-	                            X(TOK_STAR, "'*'") X(TOK_SLASH, "'/'") X(TOK_PERCENT, "'%'") X(TOK_SHL, "'<<'") X(TOK_SHR, "'>>'") X(TOK_BITOR, "'|'")       \
-	                                X(TOK_XOR, "'^'") X(TOK_BITNOT, "'~'") X(TOK_DOT, "'.'") X(TOK_ARROW, "'->'") X(TOK_EOF, "end of file")
+#define MINIC_TOK_LIST                                                                                                                                         \
+	X(TOK_INT, "'int'")                                                                                                                                        \
+	X(TOK_FLOAT, "'float'")                                                                                                                                    \
+	X(TOK_CHAR, "'char'")                                                                                                                                      \
+	X(TOK_DOUBLE, "'double'")                                                                                                                                  \
+	X(TOK_BOOL, "'bool'")                                                                                                                                      \
+	X(TOK_RETURN, "'return'")                                                                                                                                  \
+	X(TOK_IF, "'if'")                                                                                                                                          \
+	X(TOK_ELSE, "'else'")                                                                                                                                      \
+	X(TOK_WHILE, "'while'")                                                                                                                                    \
+	X(TOK_FOR, "'for'")                                                                                                                                        \
+	X(TOK_BREAK, "'break'")                                                                                                                                    \
+	X(TOK_CONTINUE, "'continue'")                                                                                                                              \
+	X(TOK_STRUCT, "'struct'")                                                                                                                                  \
+	X(TOK_TYPEDEF, "'typedef'") X(TOK_ENUM, "'enum'") X(TOK_VOID, "'void'") X(TOK_IDENT, "identifier") X(TOK_NUMBER, "number") X(TOK_CHAR_LIT, "char literal") \
+	    X(TOK_STR_LIT, "string literal") X(TOK_LPAREN, "'('") X(TOK_RPAREN, "')'") X(TOK_LBRACE, "'{'") X(TOK_RBRACE, "'}'") X(TOK_LBRACKET, "'['")            \
+	        X(TOK_RBRACKET, "']'") X(TOK_SEMICOLON, "';'") X(TOK_COMMA, "','") X(TOK_ASSIGN, "'='") X(TOK_PLUS_ASSIGN, "'+='") X(TOK_MINUS_ASSIGN, "'-='")     \
+	            X(TOK_MUL_ASSIGN, "'*='") X(TOK_DIV_ASSIGN, "'/='") X(TOK_MOD_ASSIGN, "'%='") X(TOK_SHL_ASSIGN, "'<<='") X(TOK_SHR_ASSIGN, "'>>='")            \
+	                X(TOK_AND_ASSIGN, "'&='") X(TOK_OR_ASSIGN, "'|='") X(TOK_XOR_ASSIGN, "'^='") X(TOK_EQ, "'=='") X(TOK_NEQ, "'!='") X(TOK_LT, "'<'")         \
+	                    X(TOK_GT, "'>'") X(TOK_LE, "'<='") X(TOK_GE, "'>='") X(TOK_AND, "'&&'") X(TOK_OR, "'||'") X(TOK_NOT, "'!'") X(TOK_AMP, "'&'")          \
+	                        X(TOK_PLUS, "'+'") X(TOK_MINUS, "'-'") X(TOK_INC, "'++'") X(TOK_DEC, "'--'") X(TOK_STAR, "'*'") X(TOK_SLASH, "'/'")                \
+	                            X(TOK_PERCENT, "'%'") X(TOK_SHL, "'<<'") X(TOK_SHR, "'>>'") X(TOK_BITOR, "'|'") X(TOK_XOR, "'^'") X(TOK_BITNOT, "'~'")         \
+	                                X(TOK_DOT, "'.'") X(TOK_ARROW, "'->'") X(TOK_EOF, "end of file")
 
 typedef enum {
 #define X(t, s) t,
@@ -64,8 +65,9 @@ typedef struct {
 	minic_token_t cur;
 } minic_lexer_t;
 
-static minic_u8 *minic_active_mem      = NULL;
-static int      *minic_active_mem_used = NULL;
+static minic_u8 *minic_active_mem       = NULL;
+static int      *minic_active_mem_used  = NULL;
+static int      *minic_active_mem_frame = NULL;
 
 static const struct {
 	const char      *kw;
@@ -291,6 +293,16 @@ void *minic_alloc(int size) {
 	return &minic_active_mem[aligned];
 }
 
+// Allocate a call frame from the top of the arena, released when the call returns
+static void *minic_frame_alloc(int size) {
+	int top = (*minic_active_mem_frame - size) & ~7;
+	if (size < 0 || top < *minic_active_mem_used) {
+		return NULL;
+	}
+	*minic_active_mem_frame = top;
+	return &minic_active_mem[top];
+}
+
 typedef struct {
 	char        name[MINIC_MAX_NAME];
 	minic_val_t val;
@@ -352,6 +364,7 @@ typedef struct minic_env_s {
 struct minic_ctx_s {
 	minic_u8   *mem;
 	int         mem_used;
+	int         mem_frame; // Top of the call-frame stack, grows down from MINIC_MEM_SIZE
 	minic_env_t e;
 	float       result;
 	char       *src_copy;
@@ -360,6 +373,7 @@ struct minic_ctx_s {
 static minic_val_t minic_parse_cond(minic_env_t *e);
 static void        minic_parse_stmt(minic_env_t *e);
 static void        minic_parse_block(minic_env_t *e);
+static bool        minic_lex_type(minic_env_t *e);
 
 #define MINIC_INC_DELTA(l) ((l)->cur.type == TOK_INC ? 1.0 : -1.0)
 
@@ -821,15 +835,17 @@ static bool minic_index_in_range(minic_env_t *e, void *base, minic_struct_t *def
 }
 
 static minic_val_t minic_call(minic_env_t *e, minic_func_t *fn, minic_val_t *args, int argc) {
+	int saved_frame = *minic_active_mem_frame; // The frame is released when the call returns
+
 	minic_env_t child   = {0};
 	child.lex.src       = e->lex.src;
 	child.lex.pos       = fn->body_pos;
 	child.filename      = e->filename;
 	child.var_cap       = MINIC_MAX_VARS;
-	child.vars          = minic_alloc(child.var_cap * (int)sizeof(minic_var_t));
+	child.vars          = minic_frame_alloc(child.var_cap * (int)sizeof(minic_var_t));
 	child.global_env    = e->global_env != NULL ? e->global_env : e;
 	child.arr_cap       = 32;
-	child.arrs          = minic_alloc(child.arr_cap * (int)sizeof(minic_arr_t));
+	child.arrs          = minic_frame_alloc(child.arr_cap * (int)sizeof(minic_arr_t));
 	child.arr_data      = e->arr_data;
 	child.arr_data_used = e->arr_data_used;
 	child.func_count    = e->func_count;
@@ -839,7 +855,7 @@ static minic_val_t minic_call(minic_env_t *e, minic_func_t *fn, minic_val_t *arg
 	child.struct_cap    = e->struct_cap;
 	child.structs       = e->structs;
 	child.vartype_cap   = MINIC_MAX_VARTYPES;
-	child.vartypes      = minic_alloc(child.vartype_cap * (int)sizeof(minic_vartype_t));
+	child.vartypes      = minic_frame_alloc(child.vartype_cap * (int)sizeof(minic_vartype_t));
 	// Bind parameters
 	for (int i = 0; i < argc && i < fn->param_count; ++i) {
 		minic_val_t av = minic_val_cast(args[i], fn->param_types[i]);
@@ -854,19 +870,23 @@ static minic_val_t minic_call(minic_env_t *e, minic_func_t *fn, minic_val_t *arg
 	}
 	minic_lex_next(&child.lex);
 	minic_parse_block(&child);
+	*minic_active_mem_frame = saved_frame; // Release the frame
 	return child.return_val;
 }
 
 static minic_val_t minic_call_in_ctx(minic_ctx_t *ctx, minic_func_t *fn, minic_val_t *args, int argc) {
-	minic_u8 *prev_mem      = minic_active_mem;
-	int      *prev_mem_used = minic_active_mem_used;
-	minic_active_mem        = ctx->mem;
-	minic_active_mem_used   = &ctx->mem_used;
-	int         saved_used  = ctx->mem_used;
-	minic_val_t r           = minic_call(&ctx->e, fn, args, argc);
-	ctx->mem_used           = saved_used;
-	minic_active_mem        = prev_mem;
-	minic_active_mem_used   = prev_mem_used;
+	minic_u8 *prev_mem       = minic_active_mem;
+	int      *prev_mem_used  = minic_active_mem_used;
+	int      *prev_mem_frame = minic_active_mem_frame;
+	minic_active_mem         = ctx->mem;
+	minic_active_mem_used    = &ctx->mem_used;
+	minic_active_mem_frame   = &ctx->mem_frame;
+	int         saved_used   = ctx->mem_used;
+	minic_val_t r            = minic_call(&ctx->e, fn, args, argc);
+	ctx->mem_used            = saved_used; // Rewind, the arena is free again
+	minic_active_mem         = prev_mem;
+	minic_active_mem_used    = prev_mem_used;
+	minic_active_mem_frame   = prev_mem_frame;
 	return r;
 }
 
@@ -1092,7 +1112,35 @@ static minic_val_t minic_parse_primary(minic_env_t *e) {
 		return minic_var_get(e, name);
 	}
 	if (e->lex.cur.type == TOK_LPAREN) {
-		minic_lex_next(&e->lex);
+		// Cast: '(' type '*'... ')' primary. Rewind and parse as a parenthesized
+		// expression when the parens do not hold a type specifier
+		minic_lexer_t saved = e->lex;
+		minic_lex_next(&e->lex); // Consume '('
+
+		minic_tok_type_t base_tok  = e->lex.cur.type;
+		bool             is_struct = base_tok == TOK_IDENT && minic_struct_get(e, e->lex.cur.text) != NULL;
+		if (minic_lex_type(e)) {
+			int stars = 0;
+			while (e->lex.cur.type == TOK_STAR) {
+				stars++;
+				minic_lex_next(&e->lex);
+			}
+			if (e->lex.cur.type == TOK_RPAREN) {
+				minic_lex_next(&e->lex); // Consume ')'
+				minic_val_t v = minic_parse_primary(e);
+				if (stars > 0) {
+					// Pointer cast: reinterpret, stamping the element type
+					return minic_val_typed_ptr(minic_val_to_ptr(v), stars == 1 ? minic_tok_to_deref_type(base_tok) : MINIC_T_PTR);
+				}
+				if (is_struct) {
+					return v; // Struct value cast, nothing to convert
+				}
+				// A typedef'd name that is not a struct is an int alias (enum, handle)
+				return minic_val_cast(v, base_tok == TOK_IDENT ? MINIC_T_INT : minic_tok_to_type(base_tok));
+			}
+		}
+		e->lex = saved;
+		minic_lex_next(&e->lex); // Consume '('
 		minic_val_t v = minic_parse_cond(e);
 		minic_expect(e, TOK_RPAREN);
 		return v;
@@ -1614,7 +1662,12 @@ static void minic_parse_stmt(minic_env_t *e) {
 		minic_expect(e, TOK_LPAREN);
 
 		// Init clause
+		int          saved_var_count = e->var_count;
+		bool         is_decl         = false;
+		minic_type_t itype           = MINIC_T_INT;
 		if (minic_tok_is_type(e->lex.cur.type)) {
+			itype   = minic_tok_to_type(e->lex.cur.type);
+			is_decl = true;
 			minic_lex_next(&e->lex);
 		}
 		{
@@ -1622,7 +1675,15 @@ static void minic_parse_stmt(minic_env_t *e) {
 			strncpy(iname, e->lex.cur.text, MINIC_MAX_NAME - 1);
 			minic_lex_next(&e->lex);
 			minic_expect(e, TOK_ASSIGN);
-			minic_var_set(e, iname, minic_parse_cond(e));
+			minic_val_t init = minic_parse_cond(e);
+			if (is_decl) {
+				// 'for (int i = ...)' declares a loop-local, it must not assign to an
+				// outer variable of the same name
+				minic_var_decl(e, iname, itype, init);
+			}
+			else {
+				minic_var_set(e, iname, init);
+			}
 		}
 		int cond_pos = e->lex.pos;
 		minic_lex_next(&e->lex); // Consume ';'
@@ -1683,6 +1744,7 @@ static void minic_parse_stmt(minic_env_t *e) {
 			minic_lex_next(&e->lex);
 			minic_parse_for_incr(e);
 		}
+		e->var_count = saved_var_count; // The loop variable goes out of scope
 		return;
 	}
 
@@ -2075,16 +2137,19 @@ minic_ctx_t *minic_eval_named(const char *src, const char *filename) {
 
 	minic_ctx_t *ctx = (minic_ctx_t *)calloc(1, sizeof(minic_ctx_t));
 	ctx->mem         = (minic_u8 *)calloc(1, MINIC_MEM_SIZE);
+	ctx->mem_frame   = MINIC_MEM_SIZE;
 	// Copy the source so the context stays valid after the caller frees its buffer
 	int src_len   = (int)strlen(src);
 	ctx->src_copy = (char *)malloc(src_len + 1);
 	memcpy(ctx->src_copy, src, src_len + 1);
 
 	// Save and install arena pointers so minic_alloc and the lexer use this context
-	minic_u8 *prev_mem      = minic_active_mem;
-	int      *prev_mem_used = minic_active_mem_used;
-	minic_active_mem        = ctx->mem;
-	minic_active_mem_used   = &ctx->mem_used;
+	minic_u8 *prev_mem       = minic_active_mem;
+	int      *prev_mem_used  = minic_active_mem_used;
+	int      *prev_mem_frame = minic_active_mem_frame;
+	minic_active_mem         = ctx->mem;
+	minic_active_mem_used    = &ctx->mem_used;
+	minic_active_mem_frame   = &ctx->mem_frame;
 
 	minic_env_t *e    = &ctx->e;
 	e->lex.src        = ctx->src_copy;
@@ -2120,8 +2185,9 @@ minic_ctx_t *minic_eval_named(const char *src, const char *filename) {
 	}
 
 	minic_parse_block(e);
-	minic_active_mem      = prev_mem;
-	minic_active_mem_used = prev_mem_used;
+	minic_active_mem       = prev_mem;
+	minic_active_mem_used  = prev_mem_used;
+	minic_active_mem_frame = prev_mem_frame;
 
 	ctx->result = e->error ? -1.0f : (float)minic_val_to_d(e->return_val);
 	return ctx;

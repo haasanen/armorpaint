@@ -1558,6 +1558,11 @@ void iron_exec_async(const char *path, char *argv[]) {
 		if (fd > STDERR_FILENO) {
 			close(fd);
 		}
+		int in_fd = open("/dev/null", O_RDONLY);
+		dup2(in_fd, STDIN_FILENO);
+		if (in_fd > STDERR_FILENO) {
+			close(in_fd);
+		}
 		char *home = getenv("HOME");
 		char *env  = getenv("PATH");
 		if (home != NULL) {

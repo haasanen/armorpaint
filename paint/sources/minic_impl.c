@@ -755,25 +755,17 @@ void script_physics_set_shape(object_t *o, i32 shape) {
 		return;
 	}
 
-	physics_body_t *body = script_physics_body(o);
-	if (body != NULL) {
-		physics_body_remove(body);
-	}
-	g_project->mesh_physics_shapes = i32_array_create(0);
-	if (shape < 0) {
-		return;
-	}
-
 	bool dynamic = shape == PHYSICS_SHAPE_BOX || shape == PHYSICS_SHAPE_SPHERE;
-	sim_add_body(o, (physics_shape_t)shape, dynamic ? 1.0 : 0.0);
+	sim_physics_set(o, shape, shape < 0 ? 0.0 : (dynamic ? 1.0 : 0.0));
+	g_project->mesh_physics_shapes = i32_array_create(0);
 }
 
 void script_physics_set_mass(object_t *o, f32 mass) {
-	physics_body_t *body = script_physics_body(o);
-	if (body != NULL) {
-		physics_body_set_mass(body, mass);
-		g_project->mesh_physics_shapes = i32_array_create(0);
+	if (o == NULL) {
+		return;
 	}
+	sim_physics_set_mass(o, mass);
+	g_project->mesh_physics_shapes = i32_array_create(0);
 }
 
 void script_physics_apply_impulse(object_t *o, f32 x, f32 y, f32 z) {

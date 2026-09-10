@@ -105,6 +105,8 @@ void project_cleanup() {
 		asset_t *a = g_project->_->assets->buffer[i];
 		data_delete_texture(a->file);
 	}
+
+	sim_physics_clear();
 }
 
 void project_new_on_next_frame(void *_) {

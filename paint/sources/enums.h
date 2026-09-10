@@ -270,6 +270,7 @@ typedef enum {
 	CONSOLE_MODEL_QWEN   = 0,
 	CONSOLE_MODEL_CLAUDE = 1,
 	CONSOLE_MODEL_GROK   = 2,
+	CONSOLE_MODEL_CODEX  = 3,
 } console_model_t;
 
 typedef enum {

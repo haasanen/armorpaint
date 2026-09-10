@@ -887,8 +887,9 @@ void box_preferences_neural_tab() {
 	        "Qwen",
 	        "Claude",
 	        "Grok",
+	        "Codex",
 	    },
-	    3);
+	    4);
 	g_config->console_model = ui_combo(h_console_model, console_model_combo, tr("Console Model"), true, UI_ALIGN_LEFT, true);
 
 	ui_text(tr("Models"), UI_ALIGN_LEFT, 0x00000000);
