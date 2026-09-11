@@ -90,9 +90,9 @@ static void tab_timeline_copy_path_points_to_layer(slot_layer_t *l, f32_array_t 
 }
 
 static gpu_texture_format_t tab_timeline_tex_format() {
-	return base_bits_handle->i == TEXTURE_BITS_BITS8    ? GPU_TEXTURE_FORMAT_RGBA32
-	       : base_bits_handle->i == TEXTURE_BITS_BITS16 ? GPU_TEXTURE_FORMAT_RGBA64
-	                                                    : GPU_TEXTURE_FORMAT_RGBA128;
+	return base_bits == TEXTURE_BITS_BITS8    ? GPU_TEXTURE_FORMAT_RGBA32
+	       : base_bits == TEXTURE_BITS_BITS16 ? GPU_TEXTURE_FORMAT_RGBA64
+	                                          : GPU_TEXTURE_FORMAT_RGBA128;
 }
 
 static i32 tab_timeline_find_keyframe(i32 frame, i32 layer_index) {
@@ -779,7 +779,7 @@ static gpu_texture_t *tab_timeline_tex_from_buffer(buffer_t *buf, bool is_bgra) 
 	gpu_texture_format_t fmt               = tab_timeline_tex_format();
 	i32                  w                 = config_get_texture_res_x();
 	i32                  h                 = config_get_texture_res_y();
-	i32                  bytes_per_channel = base_bits_handle->i == TEXTURE_BITS_BITS8 ? 1 : base_bits_handle->i == TEXTURE_BITS_BITS16 ? 2 : 4;
+	i32                  bytes_per_channel = base_bits == TEXTURE_BITS_BITS8 ? 1 : base_bits == TEXTURE_BITS_BITS16 ? 2 : 4;
 	buffer_t            *pixels            = lz4_decode(buf, w * h * 4 * bytes_per_channel);
 	gpu_texture_t       *tmp               = gpu_create_texture_from_bytes_raw(pixels, w, h, fmt);
 	array_free(pixels);
@@ -858,7 +858,7 @@ static bool tab_timeline_has_script(i32 row, i32 frame) {
 
 void tab_timeline_edit_script(i32 row, i32 frame) {
 	tab_scripts_create(tab_timeline_script_name(row, frame));
-	ui_base_htabs->buffer[TAB_AREA_SIDEBAR0]->i       = 2; // Scripts tab
+	ui_base_tabs->buffer[TAB_AREA_SIDEBAR0]           = 2; // Scripts tab
 	ui_base_hwnds->buffer[TAB_AREA_SIDEBAR0]->redraws = 2;
 	g_config->layout_tabs->buffer[TAB_AREA_SIDEBAR0]  = 2;
 }
@@ -1093,20 +1093,19 @@ void tab_timeline_draw_frame_context_menu() {
 		tab_timeline_edit_script(tab_timeline_selected_row, tab_timeline_selected_frame);
 	}
 
-	g_ui->enabled        = has_kf;
-	ui_handle_t *h_tween = ui_handle(__ID__);
-	h_tween->b           = false;
+	g_ui->enabled = has_kf;
+	bool tween    = false;
 	if (g_ui->enabled) {
-		h_tween->b = is_mesh ? ((tab_timeline_mesh_keyframe_t *)tab_timeline_mesh_keyframes->buffer[mesh_kfi])->tween
-		                     : ((tab_timeline_keyframe_t *)tab_timeline_keyframes->buffer[layer_kfi])->tween;
+		tween = is_mesh ? ((tab_timeline_mesh_keyframe_t *)tab_timeline_mesh_keyframes->buffer[mesh_kfi])->tween
+		                : ((tab_timeline_keyframe_t *)tab_timeline_keyframes->buffer[layer_kfi])->tween;
 	}
-	ui_check(h_tween, tr("Tween"), "");
-	if (g_ui->enabled && h_tween->changed) {
+	ui_check(&tween, tr("Tween"), "");
+	if (g_ui->enabled && ui_item_changed()) {
 		if (is_mesh) {
-			((tab_timeline_mesh_keyframe_t *)tab_timeline_mesh_keyframes->buffer[mesh_kfi])->tween = h_tween->b;
+			((tab_timeline_mesh_keyframe_t *)tab_timeline_mesh_keyframes->buffer[mesh_kfi])->tween = tween;
 		}
 		else {
-			((tab_timeline_keyframe_t *)tab_timeline_keyframes->buffer[layer_kfi])->tween = h_tween->b;
+			((tab_timeline_keyframe_t *)tab_timeline_keyframes->buffer[layer_kfi])->tween = tween;
 		}
 		ui_menu_keep_open = true;
 	}
@@ -1121,21 +1120,15 @@ void tab_timeline_draw_frame_context_menu() {
 
 void tab_timeline_draw_edit() {
 	ui_menu_align();
-	ui_handle_t *hfps = ui_handle(__ID__);
-	hfps->f           = (f32)tab_timeline_frame_rate;
-	ui_slider(hfps, tr("Frame Rate"), 1, 60, false, 1, true, UI_ALIGN_RIGHT, true);
-	if (hfps->changed) {
-		tab_timeline_frame_rate = (i32)hfps->f;
-		ui_menu_keep_open       = true;
+	ui_slider_int(&tab_timeline_frame_rate, tr("Frame Rate"), 1, 60, false, true, UI_ALIGN_RIGHT, true);
+	if (ui_item_changed()) {
+		ui_menu_keep_open = true;
 	}
 
 	ui_menu_align();
-	ui_handle_t *hframes = ui_handle(__ID__);
-	hframes->f           = (f32)tab_timeline_max_frames;
-	ui_slider(hframes, tr("Frame Count"), 1, 200, false, 1, true, UI_ALIGN_RIGHT, true);
-	if (hframes->changed) {
-		tab_timeline_max_frames = (i32)hframes->f;
-		ui_menu_keep_open       = true;
+	ui_slider_int(&tab_timeline_max_frames, tr("Frame Count"), 1, 200, false, true, UI_ALIGN_RIGHT, true);
+	if (ui_item_changed()) {
+		ui_menu_keep_open = true;
 	}
 
 	if (ui_menu_button(tr("Clear"), "", ICON_ERASE)) {
@@ -1143,40 +1136,39 @@ void tab_timeline_draw_edit() {
 	}
 }
 
+static char *tab_timeline_stage_name = "";
+
 void tab_timeline_stage_edit_box_draw() {
 	stage_t *s = tab_stages_get_stage();
 	if (s == NULL) {
 		return;
 	}
-	ui_handle_t *h = ui_handle(__ID__);
 
 	if (tab_timeline_stage_edit_init) {
-		h->text = string_copy(s->name);
-		ui_start_text_edit(h, UI_ALIGN_LEFT);
+		tab_timeline_stage_name = string_copy(s->name);
+		ui_start_text_edit(&tab_timeline_stage_name, UI_ALIGN_LEFT);
 		tab_timeline_stage_edit_init = false;
 	}
 
-	char *name = ui_text_input(h, tr("Name"), UI_ALIGN_LEFT, true, false);
+	char *name = ui_text_input(&tab_timeline_stage_name, tr("Name"), UI_ALIGN_LEFT, true, false);
 	ui_end_element();
 
 	ui_text(tr("Meshes"), UI_ALIGN_LEFT, 0x00000000);
 
-	ui_handle_t *hmeshes = ui_handle(__ID__);
 	for (i32 i = 0; i < g_project->_->paint_objects->length; ++i) {
-		mesh_object_t *o     = g_project->_->paint_objects->buffer[i];
-		i32            idx   = string_array_index_of(s->objects, o->base->name);
-		ui_handle_t   *hmesh = ui_nest(hmeshes, i);
-		hmesh->b             = idx >= 0;
-		ui_check(hmesh, o->base->name, "");
-		if (hmesh->changed) {
-			if (hmesh->b) {
+		mesh_object_t *o        = g_project->_->paint_objects->buffer[i];
+		i32            idx      = string_array_index_of(s->objects, o->base->name);
+		bool           in_stage = idx >= 0;
+		ui_check(&in_stage, o->base->name, "");
+		if (ui_item_changed()) {
+			if (in_stage) {
 				string_array_push(s->objects, o->base->name);
 			}
 			else {
 				array_splice(s->objects, idx, 1);
 			}
 
-			o->base->visible = hmesh->b;
+			o->base->visible = in_stage;
 			tab_stages_set_hidden(s, o->base->name, false);
 			util_mesh_visibility_changed();
 			sim_physics_apply_stage(s);
@@ -1187,15 +1179,13 @@ void tab_timeline_stage_edit_box_draw() {
 
 	ui_text(tr("Layers"), UI_ALIGN_LEFT, 0x00000000);
 
-	ui_handle_t *hlayers = ui_handle(__ID__);
 	for (i32 i = 0; i < g_project->_->layers->length; ++i) {
-		slot_layer_t *l      = g_project->_->layers->buffer[i];
-		i32           idx    = string_array_index_of(s->layers, l->name);
-		ui_handle_t  *hlayer = ui_nest(hlayers, i);
-		hlayer->b            = idx >= 0;
-		ui_check(hlayer, l->name, "");
-		if (hlayer->changed) {
-			if (hlayer->b) {
+		slot_layer_t *l        = g_project->_->layers->buffer[i];
+		i32           idx      = string_array_index_of(s->layers, l->name);
+		bool          in_stage = idx >= 0;
+		ui_check(&in_stage, l->name, "");
+		if (ui_item_changed()) {
+			if (in_stage) {
 				string_array_push(s->layers, l->name);
 			}
 			else {
@@ -1250,7 +1240,7 @@ static bool tab_timeline_input_in_rect(f32 x, f32 y, f32 w, f32 h) {
 	       g_ui->input_y < g_ui->_window_y + y + h;
 }
 
-void tab_timeline_draw(ui_handle_t *htab) {
+void tab_timeline_draw(i32 *htab) {
 	if (ui_tab(htab, tr("Timeline"), false, -1, false) && g_ui->_window_h > ui_statusbar_default_h * UI_SCALE()) {
 
 		tab_timeline_init();
@@ -1283,10 +1273,8 @@ void tab_timeline_draw(ui_handle_t *htab) {
 			ui_menu_draw(&tab_timeline_draw_stage_menu, -1, -1);
 		}
 
-		ui_handle_t *stage_handle = ui_handle(__ID__);
-		stage_handle->i           = tab_stages_selected;
-		tab_stages_selected       = ui_combo(stage_handle, stage_names, tr("Stage"), false, UI_ALIGN_LEFT, true);
-		if (stage_handle->changed && g_project->stages != NULL && tab_stages_selected < g_project->stages->length) {
+		ui_combo(&tab_stages_selected, stage_names, tr("Stage"), false, UI_ALIGN_LEFT, true);
+		if (ui_item_changed() && g_project->stages != NULL && tab_stages_selected < g_project->stages->length) {
 			tab_stages_apply(g_project->stages->buffer[tab_stages_selected]);
 		}
 

@@ -26,9 +26,9 @@ static void tab_meshes_set_collapsed(mesh_object_t *o, bool collapsed) {
 	collapsed ? i32_array_push(tab_meshes_collapsed, o->base->uid) : i32_array_remove(tab_meshes_collapsed, o->base->uid);
 }
 
-bool         tab_meshes_search_show   = false;
-bool         tab_meshes_search_focus  = false;
-ui_handle_t *tab_meshes_search_handle = NULL;
+bool  tab_meshes_search_show  = false;
+bool  tab_meshes_search_focus = false;
+char *tab_meshes_search       = "";
 
 static bool tab_meshes_slot_hidden(mesh_object_t *o) {
 	object_t *p = o->base->parent;
@@ -45,14 +45,10 @@ static bool tab_meshes_slot_hidden(mesh_object_t *o) {
 		return true;
 	}
 
-	if (!tab_meshes_search_show || tab_meshes_search_handle == NULL) {
+	if (!tab_meshes_search_show || string_equals(tab_meshes_search, "")) {
 		return false;
 	}
-	char *search = tab_meshes_search_handle->text;
-	if (search == NULL || string_equals(search, "")) {
-		return false;
-	}
-	return string_index_of(to_lower_case(o->base->name), to_lower_case(search)) < 0;
+	return string_index_of(to_lower_case(o->base->name), to_lower_case(tab_meshes_search)) < 0;
 }
 
 static bool tab_meshes_has_children(mesh_object_t *o) {
@@ -440,35 +436,26 @@ void tab_meshes_merge_geometry_next_frame(void *_) {
 	util_mesh_merge_geometry();
 }
 
+static bool tab_meshes_float_input(f32 *value, void *id, char *label) {
+	char *text = f32_to_string2(*value);
+	ui_set_next_id((ui_id_t)id);
+	ui_text_input(&text, label, UI_ALIGN_LEFT, true, false);
+	if (!ui_item_changed()) {
+		return false;
+	}
+	*value = parse_float(text);
+	return true;
+}
+
 void tab_meshes_draw_transform_loc(mesh_object_t *o, char *ns) {
 	transform_t *t        = o->base->transform;
 	vec4_t       prev_loc = t->loc;
-	bool         changed  = false;
-	f32          f        = 0.0;
 
-	ui_handle_t *h = ui_handle(string_tmp("%s%s", __ID__, ns));
-	h->text        = string_copy(f32_to_string2(t->loc.x));
-	f              = parse_float(ui_text_input(h, "X", UI_ALIGN_LEFT, true, false));
-	if (h->changed) {
-		changed  = true;
-		t->loc.x = f;
-	}
-
-	h       = ui_handle(string_tmp("%s%s", __ID__, ns));
-	h->text = string_copy(f32_to_string2(t->loc.y));
-	f       = parse_float(ui_text_input(h, "Y", UI_ALIGN_LEFT, true, false));
-	if (h->changed) {
-		changed  = true;
-		t->loc.y = f;
-	}
-
-	h       = ui_handle(string_tmp("%s%s", __ID__, ns));
-	h->text = string_copy(f32_to_string2(t->loc.z));
-	f       = parse_float(ui_text_input(h, "Z", UI_ALIGN_LEFT, true, false));
-	if (h->changed) {
-		changed  = true;
-		t->loc.z = f;
-	}
+	ui_push_id((ui_id_t)ns);
+	bool changed = tab_meshes_float_input(&t->loc.x, &t->loc.x, "X");
+	changed |= tab_meshes_float_input(&t->loc.y, &t->loc.y, "Y");
+	changed |= tab_meshes_float_input(&t->loc.z, &t->loc.z, "Z");
+	ui_pop_id();
 
 	if (changed) {
 		history_object_transform(o, prev_loc, t->rot, t->scale);
@@ -482,32 +469,12 @@ void tab_meshes_draw_transform_rot(mesh_object_t *o, char *ns) {
 	transform_t *t   = o->base->transform;
 	vec4_t       rot = quat_get_euler(t->rot);
 	rot              = vec4_mult(rot, 180 / 3.141592);
-	bool changed     = false;
-	f32  f           = 0.0;
 
-	ui_handle_t *h = ui_handle(string_tmp("%s%s", __ID__, ns));
-	h->text        = string_copy(f32_to_string2(rot.x));
-	f              = parse_float(ui_text_input(h, "X", UI_ALIGN_LEFT, true, false));
-	if (h->changed) {
-		changed = true;
-		rot.x   = f;
-	}
-
-	h       = ui_handle(string_tmp("%s%s", __ID__, ns));
-	h->text = string_copy(f32_to_string2(rot.y));
-	f       = parse_float(ui_text_input(h, "Y", UI_ALIGN_LEFT, true, false));
-	if (h->changed) {
-		changed = true;
-		rot.y   = f;
-	}
-
-	h       = ui_handle(string_tmp("%s%s", __ID__, ns));
-	h->text = string_copy(f32_to_string2(rot.z));
-	f       = parse_float(ui_text_input(h, "Z", UI_ALIGN_LEFT, true, false));
-	if (h->changed) {
-		changed = true;
-		rot.z   = f;
-	}
+	ui_push_id((ui_id_t)ns);
+	bool changed = tab_meshes_float_input(&rot.x, &t->rot.x, "X");
+	changed |= tab_meshes_float_input(&rot.y, &t->rot.y, "Y");
+	changed |= tab_meshes_float_input(&rot.z, &t->rot.z, "Z");
+	ui_pop_id();
 
 	if (changed) {
 		history_object_transform(o, t->loc, t->rot, t->scale);
@@ -522,32 +489,12 @@ void tab_meshes_draw_transform_rot(mesh_object_t *o, char *ns) {
 void tab_meshes_draw_transform_scale(mesh_object_t *o, char *ns) {
 	transform_t *t          = o->base->transform;
 	vec4_t       prev_scale = t->scale;
-	bool         changed    = false;
-	f32          f          = 0.0;
 
-	ui_handle_t *h = ui_handle(string_tmp("%s%s", __ID__, ns));
-	h->text        = string_copy(f32_to_string2(t->scale.x));
-	f              = parse_float(ui_text_input(h, "X", UI_ALIGN_LEFT, true, false));
-	if (h->changed) {
-		changed    = true;
-		t->scale.x = f;
-	}
-
-	h       = ui_handle(string_tmp("%s%s", __ID__, ns));
-	h->text = string_copy(f32_to_string2(t->scale.y));
-	f       = parse_float(ui_text_input(h, "Y", UI_ALIGN_LEFT, true, false));
-	if (h->changed) {
-		changed    = true;
-		t->scale.y = f;
-	}
-
-	h       = ui_handle(string_tmp("%s%s", __ID__, ns));
-	h->text = string_copy(f32_to_string2(t->scale.z));
-	f       = parse_float(ui_text_input(h, "Z", UI_ALIGN_LEFT, true, false));
-	if (h->changed) {
-		changed    = true;
-		t->scale.z = f;
-	}
+	ui_push_id((ui_id_t)ns);
+	bool changed = tab_meshes_float_input(&t->scale.x, &t->scale.x, "X");
+	changed |= tab_meshes_float_input(&t->scale.y, &t->scale.y, "Y");
+	changed |= tab_meshes_float_input(&t->scale.z, &t->scale.z, "Z");
+	ui_pop_id();
 
 	if (changed) {
 		history_object_transform(o, t->loc, t->rot, prev_scale);
@@ -612,33 +559,9 @@ void tab_meshes_draw_context_menu() {
 	ui_row4();
 	ui_text("Dim", UI_ALIGN_LEFT, 0x00000000);
 
-	bool         changed = false;
-	f32          f       = 0.0;
-	ui_handle_t *h;
-
-	h       = ui_handle(__ID__);
-	h->text = string_copy(f32_to_string2(t->dim.x));
-	f       = parse_float(ui_text_input(h, "X", UI_ALIGN_LEFT, true, false));
-	if (h->changed) {
-		changed  = true;
-		t->dim.x = f;
-	}
-
-	h       = ui_handle(__ID__);
-	h->text = string_copy(f32_to_string2(t->dim.y));
-	f       = parse_float(ui_text_input(h, "Y", UI_ALIGN_LEFT, true, false));
-	if (h->changed) {
-		changed  = true;
-		t->dim.y = f;
-	}
-
-	h       = ui_handle(__ID__);
-	h->text = string_copy(f32_to_string2(t->dim.z));
-	f       = parse_float(ui_text_input(h, "Z", UI_ALIGN_LEFT, true, false));
-	if (h->changed) {
-		changed  = true;
-		t->dim.z = f;
-	}
+	bool changed = tab_meshes_float_input(&t->dim.x, &t->dim.x, "X");
+	changed |= tab_meshes_float_input(&t->dim.y, &t->dim.y, "Y");
+	changed |= tab_meshes_float_input(&t->dim.z, &t->dim.z, "Z");
 
 	if (changed) {
 		transform_build_matrix(t);
@@ -653,13 +576,16 @@ void tab_meshes_draw_context_menu() {
 		string_array_push(mat_combo, g_project->_->materials->buffer[mi]->canvas->name);
 	}
 
-	ui_handle_t *hmat = ui_handle(__ID__);
-	hmat->i           = tab_meshes_get_linked_override(o) + 1; // 0 = none
-	ui_combo(hmat, mat_combo, tr("Material"), true, UI_ALIGN_LEFT, false);
+	ui_push_id((ui_id_t)o);
+
+	i32 mat = tab_meshes_get_linked_override(o) + 1; // 0 = none
+	ui_set_next_id(1);
+	ui_combo(&mat, mat_combo, tr("Material"), true, UI_ALIGN_LEFT, false);
+	bool mat_changed = ui_item_changed();
 	array_free(mat_combo);
 	free(mat_combo);
-	if (hmat->changed) {
-		tab_meshes_set_linked_override(o, hmat->i - 1);
+	if (mat_changed) {
+		tab_meshes_set_linked_override(o, mat - 1);
 		g_context->ddirty         = 2;
 		g_context->rtdirty        = 2;
 		g_project->mesh_materials = i32_array_create(0);
@@ -677,13 +603,13 @@ void tab_meshes_draw_context_menu() {
 		}
 	}
 
-	ui_handle_t *hparent = ui_handle(__ID__);
-	hparent->i           = parent_idx;
-	ui_combo(hparent, parent_combo, tr("Parent"), true, UI_ALIGN_LEFT, false);
+	ui_set_next_id(2);
+	ui_combo(&parent_idx, parent_combo, tr("Parent"), true, UI_ALIGN_LEFT, false);
+	bool parent_changed = ui_item_changed();
 	array_free(parent_combo);
 	free(parent_combo);
-	if (hparent->changed) {
-		object_t *new_parent = hparent->i == 0 ? NULL : g_project->_->paint_objects->buffer[hparent->i - 1]->base;
+	if (parent_changed) {
+		object_t *new_parent = parent_idx == 0 ? NULL : g_project->_->paint_objects->buffer[parent_idx - 1]->base;
 		object_set_parent(o->base, new_parent);
 		tab_meshes_sort_hierarchy();
 		g_project->mesh_parents = i32_array_create(0);
@@ -699,28 +625,31 @@ void tab_meshes_draw_context_menu() {
 	string_array_push(phys_combo, tr("Terrain"));
 	string_array_push(phys_combo, tr("Mesh"));
 
-	ui_handle_t *hphys = ui_handle(__ID__);
-	hphys->i           = shape + 1; // 0 = none
-	ui_combo(hphys, phys_combo, tr("Physics"), true, UI_ALIGN_LEFT, false);
+	i32 phys = shape + 1; // 0 = none
+	ui_set_next_id(3);
+	ui_combo(&phys, phys_combo, tr("Physics"), true, UI_ALIGN_LEFT, false);
+	bool phys_changed = ui_item_changed();
 	array_free(phys_combo);
 	free(phys_combo);
-	if (hphys->changed) {
-		shape        = hphys->i - 1;
+	if (phys_changed) {
+		shape        = phys - 1;
 		bool dynamic = shape == PHYSICS_SHAPE_BOX || shape == PHYSICS_SHAPE_SPHERE;
 		sim_physics_set(o->base, shape, shape < 0 ? 0.0 : (dynamic ? 1.0 : 0.0));
 		g_project->mesh_physics_shapes = i32_array_create(0);
 	}
 
 	if (shape >= 0) {
-		ui_handle_t *hmass = ui_handle(__ID__);
-		hmass->f           = sim_physics_get_mass(o->base);
-		ui_slider(hmass, tr("Mass"), 0.0, 10.0, true, 100, true, UI_ALIGN_LEFT, true);
-		if (hmass->changed) {
-			sim_physics_set_mass(o->base, hmass->f);
+		f32 mass = sim_physics_get_mass(o->base);
+		ui_set_next_id(4);
+		ui_slider(&mass, tr("Mass"), 0.0, 10.0, true, 100, true, UI_ALIGN_LEFT, true);
+		if (ui_item_changed()) {
+			sim_physics_set_mass(o->base, mass);
 			g_project->mesh_physics_shapes = i32_array_create(0);
 			ui_menu_keep_open              = true;
 		}
 	}
+
+	ui_pop_id();
 
 	if (g_ui->changed || g_ui->is_typing) {
 		ui_menu_keep_open = true;
@@ -741,7 +670,7 @@ void tab_meshes_draw_edit() {
 
 	ui_menu_separator();
 
-	if (ui_menu_sub_button(ui_handle(__ID__), tr("Calculate Normals"))) {
+	if (ui_menu_sub_button(tr("Calculate Normals"))) {
 		ui_menu_sub_begin(2);
 		if (ui_menu_button(tr("Smooth"), "", ICON_NONE)) {
 			util_mesh_calc_normals(true);
@@ -776,7 +705,7 @@ void tab_meshes_draw_edit() {
 		g_context->ddirty = 2;
 	}
 
-	if (ui_menu_sub_button(ui_handle(__ID__), tr("Rotate"))) {
+	if (ui_menu_sub_button(tr("Rotate"))) {
 		ui_menu_sub_begin(3);
 		if (ui_menu_button(tr("X"), "", ICON_NONE)) {
 			util_mesh_swap_axis(1, 2);
@@ -798,7 +727,7 @@ void tab_meshes_draw_edit() {
 
 	ui_menu_separator();
 
-	if (ui_menu_sub_button(ui_handle(__ID__), tr("Modifiers"))) {
+	if (ui_menu_sub_button(tr("Modifiers"))) {
 		ui_menu_sub_begin(4);
 		if (ui_menu_button(tr("Decimate"), "", ICON_NONE)) {
 			util_mesh_decimate(0.5);
@@ -1136,15 +1065,15 @@ void tab_meshes_draw_mesh_slot(mesh_object_t *o, i32 i) {
 	bool over_name = g_ui->input_x > g_ui->_window_x + name_x && g_ui->input_x < g_ui->_window_x + name_right;
 
 	if (tab_meshes_mesh_name_edit == o->base->uid) {
-		tab_meshes_mesh_name_handle->text = string_copy(o->base->name);
-		char *new_name                    = string_copy(ui_text_input(tab_meshes_mesh_name_handle, "", UI_ALIGN_LEFT, true, false));
+		tab_meshes_mesh_name = string_copy(o->base->name);
+		char *new_name       = string_copy(ui_text_input(&tab_meshes_mesh_name, "", UI_ALIGN_LEFT, true, false));
 		tab_stages_rename_object(o->base->name, new_name);
 		o->base->name = new_name;
 		// Mesh data shared by linked duplicates is named after the object holding it
 		if (util_mesh_data_owner(o->data) == i) {
 			o->data->name = string_copy(o->base->name);
 		}
-		if (g_ui->text_selected_handle != tab_meshes_mesh_name_handle) {
+		if (g_ui->text_selected_id != ui_widget_id(&tab_meshes_mesh_name, UI_ID_TEXT)) {
 			tab_meshes_mesh_name_edit = -1;
 		}
 	}
@@ -1166,9 +1095,9 @@ void tab_meshes_draw_mesh_slot(mesh_object_t *o, i32 i) {
 				if (sys_time() - g_context->select_time < 0.2) {
 					if (over_name) {
 						// Double click name to rename
-						tab_meshes_mesh_name_edit         = o->base->uid;
-						tab_meshes_mesh_name_handle->text = string_copy(o->base->name);
-						ui_start_text_edit(tab_meshes_mesh_name_handle, UI_ALIGN_LEFT);
+						tab_meshes_mesh_name_edit = o->base->uid;
+						tab_meshes_mesh_name      = string_copy(o->base->name);
+						ui_start_text_edit(&tab_meshes_mesh_name, UI_ALIGN_LEFT);
 					}
 					else {
 						// Double click to show only this mesh
@@ -1201,12 +1130,12 @@ void tab_meshes_draw_mesh_slot(mesh_object_t *o, i32 i) {
 
 	// Panel
 	if (has_children) {
-		g_ui->_x                = uix + uiw * 0.90;
-		g_ui->_y                = uiy + center;
-		g_ui->_w                = uiw * 0.15;
-		ui_handle_t *mesh_panel = ui_nest(ui_handle(__ID__), o->base->uid);
-		mesh_panel->b           = !tab_meshes_is_collapsed(o);
-		tab_meshes_set_collapsed(o, !ui_panel(mesh_panel, "", false, false, true));
+		g_ui->_x      = uix + uiw * 0.90;
+		g_ui->_y      = uiy + center;
+		g_ui->_w      = uiw * 0.15;
+		bool expanded = !tab_meshes_is_collapsed(o);
+		ui_panel(&expanded, "", false, false, true);
+		tab_meshes_set_collapsed(o, !expanded);
 	}
 
 	g_ui->_x = uix;
@@ -1249,7 +1178,7 @@ static void tab_meshes_scroll_to_slot(i32 index) {
 	}
 }
 
-void tab_meshes_draw(ui_handle_t *htab) {
+void tab_meshes_draw(i32 *htab) {
 	if (ui_tab(htab, tr("Meshes"), false, -1, false) && g_ui->_window_h > ui_statusbar_default_h * UI_SCALE()) {
 
 		bool in_window = ui_input_in_rect(g_ui->_window_x, g_ui->_window_y, g_ui->_window_w, g_ui->_window_h);
@@ -1283,22 +1212,21 @@ void tab_meshes_draw(ui_handle_t *htab) {
 			ui_menu_draw(&tab_meshes_draw_edit, -1, -1);
 		}
 
-		tab_meshes_search_handle = ui_handle(__ID__);
 		if (tab_meshes_search_show) {
-			bool search_selected           = g_ui->text_selected_handle == tab_meshes_search_handle;
-			tab_meshes_search_handle->text = string_copy(ui_text_input(tab_meshes_search_handle, tr("Search"), UI_ALIGN_LEFT, true, true));
+			bool search_selected = g_ui->text_selected_id == ui_widget_id(&tab_meshes_search, UI_ID_TEXT);
+			ui_text_input(&tab_meshes_search, tr("Search"), UI_ALIGN_LEFT, true, true);
 			if (g_ui->is_hovered) {
 				ui_tooltip(tr("esc to cancel"));
 			}
 			if (tab_meshes_search_focus) { // Ctrl+f to open
 				tab_meshes_search_focus = false;
-				ui_start_text_edit(tab_meshes_search_handle, UI_ALIGN_LEFT);
-				g_ui->cursor_x         = string_length(tab_meshes_search_handle->text);
+				ui_start_text_edit(&tab_meshes_search, UI_ALIGN_LEFT);
+				g_ui->cursor_x         = string_length(tab_meshes_search);
 				g_ui->highlight_anchor = 0;
 			}
 			if ((search_selected || in_window) && g_ui->is_escape_down) {
-				tab_meshes_search_show         = false;
-				tab_meshes_search_handle->text = "";
+				tab_meshes_search_show = false;
+				tab_meshes_search      = "";
 			}
 		}
 

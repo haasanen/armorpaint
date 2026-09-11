@@ -224,31 +224,31 @@ void tab_textures_draw_import(char *path) {
 	ui_base_hwnds->buffer[TAB_AREA_STATUS]->redraws = 2;
 }
 
-void tab_textures_draw(ui_handle_t *htab) {
+char *tab_textures_search = "";
+
+void tab_textures_draw(i32 *htab) {
 
 	if (ui_tab(htab, tr("Textures"), false, -1, false) && g_ui->_window_h > ui_statusbar_default_h * UI_SCALE()) {
 
 		ui_begin_sticky();
 
-		ui_handle_t *hsearch = ui_handle(__ID__);
-
-		f32_array_t *row = string_equals(hsearch->text, "") ? f32_array_create_from_raw(
-		                                                          (f32[]){
-		                                                              -100,
-		                                                              -100,
-		                                                              -100,
-		                                                              -200,
-		                                                          },
-		                                                          4)
-		                                                    : f32_array_create_from_raw(
-		                                                          (f32[]){
-		                                                              -100,
-		                                                              -100,
-		                                                              -100,
-		                                                              -200,
-		                                                              -40,
-		                                                          },
-		                                                          5);
+		f32_array_t *row = string_equals(tab_textures_search, "") ? f32_array_create_from_raw(
+		                                                                (f32[]){
+		                                                                    -100,
+		                                                                    -100,
+		                                                                    -100,
+		                                                                    -200,
+		                                                                },
+		                                                                4)
+		                                                          : f32_array_create_from_raw(
+		                                                                (f32[]){
+		                                                                    -100,
+		                                                                    -100,
+		                                                                    -100,
+		                                                                    -200,
+		                                                                    -40,
+		                                                                },
+		                                                                5);
 		ui_row(row);
 
 		if (ui_icon_button(tr("Import"), ICON_IMPORT, UI_ALIGN_CENTER)) {
@@ -264,20 +264,20 @@ void tab_textures_draw(ui_handle_t *htab) {
 			ui_menu_draw(&tab_textures_draw_edit, -1, -1);
 		}
 
-		hsearch->text = string_copy(ui_text_input(hsearch, tr("Search"), UI_ALIGN_LEFT, true, true));
+		ui_text_input(&tab_textures_search, tr("Search"), UI_ALIGN_LEFT, true, true);
 		if (g_ui->is_hovered) {
 			ui_tooltip(string_tmp("%s\n%s", tr("ctrl+f to search"), tr("esc to cancel")));
 		}
 		if (g_ui->is_ctrl_down && g_ui->is_key_pressed && g_ui->key_code == KEY_CODE_F) {
-			ui_start_text_edit(hsearch, UI_ALIGN_LEFT);
+			ui_start_text_edit(&tab_textures_search, UI_ALIGN_LEFT);
 		}
-		if (!string_equals(hsearch->text, "") && (ui_button(tr("X"), UI_ALIGN_CENTER, "") || g_ui->is_escape_down)) {
-			hsearch->text = "";
+		if (!string_equals(tab_textures_search, "") && (ui_button(tr("X"), UI_ALIGN_CENTER, "") || g_ui->is_escape_down)) {
+			tab_textures_search = "";
 		}
 
 		ui_end_sticky();
 
-		char *search = to_lower_case(hsearch->text);
+		char *search = to_lower_case(tab_textures_search);
 
 		if (g_project->_->assets->length > 0) {
 

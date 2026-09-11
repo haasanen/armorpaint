@@ -23,8 +23,8 @@ static void sculpt_ensure_texture_res() {
 		i32 next = config_get_texture_res_x() < 2048 ? 2048 : config_get_texture_res_x() < 4096 ? 4096 : 8192;
 		i32 pos  = config_get_texture_res_pos(next);
 		config_set_texture_res(pos);
-		base_res_handle->i = pos;
-		changed            = true;
+		base_res = pos;
+		changed  = true;
 	}
 	if (changed) {
 		layers_resize();

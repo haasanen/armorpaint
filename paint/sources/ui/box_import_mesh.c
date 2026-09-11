@@ -39,7 +39,8 @@ void project_import_mesh_box_draw() {
 		    },
 		    3);
 		ui_text(tr("Split By"), UI_ALIGN_LEFT, 0);
-		g_context->split_by = plugins_split_by = ui_inline_radio(ui_handle(__ID__), split_by_combo, UI_ALIGN_LEFT);
+		ui_inline_radio((int *)&g_context->split_by, split_by_combo, UI_ALIGN_LEFT);
+		plugins_split_by = g_context->split_by;
 		if (g_ui->is_hovered) {
 			ui_tooltip(tr("Split mesh into objects"));
 		}
@@ -50,12 +51,14 @@ void project_import_mesh_box_draw() {
 	}
 
 	if (ends_with(to_lower_case(path), ".fbx") || ends_with(to_lower_case(path), ".gltf") || ends_with(to_lower_case(path), ".glb")) {
+		static bool skinning = false;
+		static f32  frame    = 0.0;
 		ui_row2();
-		bool b                 = ui_check(ui_handle(__ID__), tr("Apply Skinning"), "");
-		g_ui->enabled          = b;
-		plugins_skinning_frame = ui_slider(ui_handle(__ID__), tr("Frame"), 1, 99, false, 1, true, UI_ALIGN_RIGHT, true);
+		ui_check(&skinning, tr("Apply Skinning"), "");
+		g_ui->enabled          = skinning;
+		plugins_skinning_frame = ui_slider(&frame, tr("Frame"), 1, 99, false, 1, true, UI_ALIGN_RIGHT, true);
 		g_ui->enabled          = true;
-		if (!b) {
+		if (!skinning) {
 			plugins_skinning_frame = -1;
 		}
 	}
