@@ -340,6 +340,28 @@ void tab_meshes_on_material_reordered(i32 old_index, i32 new_index) {
 	}
 }
 
+static i32 tab_meshes_delete_index = 0;
+
+static mesh_object_t *tab_meshes_select_after_delete() {
+	// Keep the selection on the same row
+	mesh_object_t_array_t *objects = g_project->_->paint_objects;
+	i32                    index   = tab_meshes_delete_index < objects->length ? tab_meshes_delete_index : objects->length - 1;
+	if (index < 0) {
+		index = 0;
+	}
+	for (i32 i = index; i < objects->length; ++i) {
+		if (!tab_meshes_slot_hidden(objects->buffer[i])) {
+			return objects->buffer[i];
+		}
+	}
+	for (i32 i = index - 1; i >= 0; --i) {
+		if (!tab_meshes_slot_hidden(objects->buffer[i])) {
+			return objects->buffer[i];
+		}
+	}
+	return context_main_object();
+}
+
 void tab_meshes_draw_context_menu_delete_next_frame(mesh_object_t *o) {
 	util_mesh_remove_merged();
 	if (util_mesh_data_owner(o->data) == -1) {
@@ -347,7 +369,7 @@ void tab_meshes_draw_context_menu_delete_next_frame(mesh_object_t *o) {
 	}
 	mesh_object_remove(o);
 	tab_stages_prune();
-	g_context->paint_object = context_main_object();
+	g_context->paint_object = tab_meshes_select_after_delete();
 	util_mesh_merge(NULL);
 	g_context->ddirty                                 = 2;
 	ui_base_hwnds->buffer[TAB_AREA_SIDEBAR0]->redraws = 2;
@@ -360,8 +382,37 @@ static void tab_meshes_reparent_keep_world(object_t *child, object_t *parent) {
 	transform_set_matrix(child->transform, mat4_mult_mat(world, mat4_inv(parent_world)));
 }
 
+static bool tab_meshes_in_other_stage(stage_t *stage, char *name) {
+	for (i32 i = 0; i < g_project->stages->length; ++i) {
+		stage_t *s = g_project->stages->buffer[i];
+		if (s != stage && string_array_index_of(s->objects, name) >= 0) {
+			return true;
+		}
+	}
+	return false;
+}
+
 void tab_meshes_draw_context_menu_delete(mesh_object_t *o) {
-	char *mesh_name = o->base->name;
+	char *mesh_name         = o->base->name;
+	tab_meshes_delete_index = array_index_of(g_project->_->paint_objects, o);
+
+	// Mesh is still used by another stage
+	stage_t *stage = tab_stages_get_stage();
+	if (stage != NULL && tab_meshes_in_other_stage(stage, mesh_name)) {
+		i32 idx = string_array_index_of(stage->objects, mesh_name);
+		if (idx >= 0) {
+			array_splice(stage->objects, idx, 1);
+		}
+		tab_stages_set_hidden(stage, mesh_name, false);
+		o->base->visible        = false;
+		g_context->paint_object = tab_meshes_select_after_delete();
+		util_mesh_visibility_changed();
+		sim_physics_apply_stage(stage);
+		ui_header_handle->redraws                         = 2;
+		ui_base_hwnds->buffer[TAB_AREA_SIDEBAR0]->redraws = 2;
+		return;
+	}
+
 	array_remove(g_project->_->paint_objects, o);
 	tab_timeline_on_mesh_deleted(mesh_name);
 
