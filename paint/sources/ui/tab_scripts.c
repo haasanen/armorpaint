@@ -107,6 +107,23 @@ void tab_scripts_draw_edit() {
 	if (ui_menu_button(tr("Clear"), "", ICON_ERASE)) {
 		tab_scripts_set("");
 	}
+	if (ui_menu_button(tr("New"), "", ICON_PLUS)) {
+		// mainNNN.c
+		char *name = NULL;
+		for (i32 i = 1; i < 1000; ++i) {
+			char *n = string("main%03d.c", i);
+			if (string_array_index_of(g_project->script_names, n) < 0) {
+				name = n;
+				break;
+			}
+		}
+		if (name != NULL) {
+			string_array_push(g_project->script_names, name);
+			string_array_push(g_project->script_datas, string_copy("void main() {\n    \n}\n"));
+			tab_scripts_selected      = g_project->script_datas->length - 1;
+			tab_scripts_minimap_dirty = true;
+		}
+	}
 	g_ui->enabled = !string_equals(g_project->script_names->buffer[tab_scripts_selected], "main.c");
 	if (ui_menu_button(tr("Delete"), "", ICON_DELETE)) {
 		array_splice((any_array_t *)g_project->script_datas, tab_scripts_selected, 1);

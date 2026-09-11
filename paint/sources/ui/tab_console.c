@@ -22,9 +22,7 @@ void tab_console_run_done(char *s) {
 		s = substring(s, i + 5, string_last_index_of(s, "```"));
 	}
 
-	tab_scripts_get();
-	g_project->script_datas->buffer[0] = string_copy(s);
-	tab_scripts_minimap_dirty          = true;
+	tab_scripts_set(s);
 
 	ui_base_hwnds->buffer[TAB_AREA_SIDEBAR0]->redraws = 2;
 }
@@ -52,11 +50,10 @@ bool tab_console_run_button(ui_handle_t *h_input, bool press_run) {
 		sys_notify_on_next_frame(&tab_console_run_button_on_next_frame, NULL);
 	}
 	else if (found && (ui_icon_button(tr("Run"), ICON_PLAY, UI_ALIGN_CENTER) || press_run)) {
-
-		console_log(string(">%s", h_input->text));
-		text_to_text_node_run(h_input->text, tab_console_run_done);
+		char *prompt = string_replace_all(h_input->text, "\n", " ");
+		console_log(string(">%s", prompt));
+		text_to_text_node_run(prompt, tab_console_run_done);
 		h_input->text = "";
-
 		return true;
 	}
 	return false;
@@ -153,28 +150,41 @@ void tab_console_draw(ui_handle_t *htab) {
 
 		g_theme->ELEMENT_OFFSET = _element_offset;
 
-		row = f32_array_create_from_raw_tmp(
-		    (f32[]){
-		        0.9,
-		        0.1,
-		    },
-		    2);
-		ui_row(row);
+		f32 _input_x = g_ui->_x;
+		f32 _input_y = g_ui->_y;
+		f32 _input_w = g_ui->_w;
+		f32 input_w  = _input_w * 0.9;
 
-		ui_text_input(h_input, "", UI_ALIGN_LEFT, true, false);
-		bool press_run = h_input->changed && g_ui->is_return_down;
+		g_ui->_w       = input_w;
+		bool press_run = g_ui->text_selected_handle == h_input && g_ui->is_key_pressed && g_ui->key_code == KEY_CODE_RETURN;
+		ui_text_area(h_input, UI_ALIGN_LEFT, true, "", true);
+		if (press_run && g_ui->text_selected_handle == h_input) {
+			ui_deselect_text(g_ui);
+			g_ui->submit_text_handle = NULL;
+		}
+		press_run   = press_run && h_input->text[0] != '\0';
+		f32 input_y = g_ui->_y;
 
 		ui_set_font(g_ui, _font);
 		g_ui->font_size = _font_size;
+
+		g_ui->_x = _input_x + input_w;
+		g_ui->_y = _input_y;
+		g_ui->_w = _input_w - input_w;
 
 #if defined(IRON_WINDOWS) || defined(IRON_LINUX) || defined(IRON_MACOS)
 		tab_console_run_button(h_input, press_run);
 #else
 		if (ui_icon_button(tr("Run"), ICON_PLAY, UI_ALIGN_CENTER) || press_run) {
-			console_log(string(">%s", h_input->text));
-			minic_ctx_free(minic_eval(string("float main() { %s }", h_input->text)));
+			char *prompt = string_replace_all(h_input->text, "\n", " ");
+			console_log(string(">%s", prompt));
+			minic_ctx_free(minic_eval(string("float main() { %s }", prompt)));
 			h_input->text = "";
 		}
 #endif
+
+		g_ui->_x = _input_x;
+		g_ui->_w = _input_w;
+		g_ui->_y = input_y > g_ui->_y ? input_y : g_ui->_y;
 	}
 }
