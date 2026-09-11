@@ -746,6 +746,31 @@ object_t *script_object_duplicate(object_t *o) {
 	return dup->base;
 }
 
+object_t *script_object_clone(char *name) {
+	return script_object_duplicate(script_get_object(name));
+}
+
+void script_object_set_name(object_t *o, char *name) {
+	if (o == NULL || name == NULL) {
+		return;
+	}
+
+	char *new_name = string_copy(name);
+	tab_stages_rename_object(o->name, new_name);
+	o->name = new_name;
+
+	if (o->ext != NULL && string_equals(o->ext_type, "mesh_object_t")) {
+		mesh_object_t *mo = o->ext;
+		if (mo->data != NULL && util_mesh_data_owner(mo->data) == array_index_of(g_project->_->paint_objects, mo)) {
+			mo->data->name = string_copy(new_name);
+		}
+	}
+
+	if (ui_base_hwnds != NULL && ui_base_hwnds->length > TAB_AREA_SIDEBAR0) {
+		ui_base_hwnds->buffer[TAB_AREA_SIDEBAR0]->redraws = 2;
+	}
+}
+
 static physics_body_t *script_physics_body(object_t *o) {
 	return o != NULL && o->_ != NULL ? o->_->body : NULL;
 }

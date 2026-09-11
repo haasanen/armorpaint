@@ -502,6 +502,8 @@ slot_material_t          *script_get_material(char *s);
 string_array_t           *script_shape_list(void);
 object_t                 *script_shape_add(char *name);
 object_t                 *script_object_duplicate(object_t *o);
+object_t                 *script_object_clone(char *name);
+void                      script_object_set_name(object_t *o, char *name);
 void                      script_add_trait(char *object, char *trait);
 void                      script_physics_set_shape(object_t *o, i32 shape);
 void                      script_physics_set_mass(object_t *o, f32 mass);

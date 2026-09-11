@@ -16,6 +16,7 @@
 #include "iron_system.h"
 #include "iron_ui.h"
 #include "minic.h"
+#include <limits.h>
 #include <math.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -40,76 +41,78 @@ static int minic_vformat(const char *fmt, minic_val_t *args, int argc, char *buf
 	int pos = 0;
 	int arg = 0;
 	while (*fmt != '\0') {
-		if (*fmt != '%') {
-			if (buf && pos < bufsize - 1)
+		if (*fmt != '%' || fmt[1] == '%') {
+			if (buf && pos < bufsize - 1) {
 				buf[pos] = *fmt;
+			}
 			pos++;
-			fmt++;
+			fmt += *fmt == '%' ? 2 : 1;
 			continue;
 		}
-		fmt++;
-		char spec = *fmt++;
-		if (spec == '\0') {
+		char spec[40];
+		int  sp    = 0;
+		spec[sp++] = *fmt++;
+		while (*fmt != '\0' && strchr("-+ #0123456789.*", *fmt) && sp < 24) {
+			if (*fmt == '*') {
+				sp += snprintf(spec + sp, 12, "%d", arg < argc ? (int)minic_val_to_d(args[arg++]) : 0);
+				fmt++;
+			}
+			else {
+				spec[sp++] = *fmt++;
+			}
+		}
+		while (*fmt != '\0' && strchr("hlLzjt", *fmt)) {
+			fmt++;
+		}
+		char c = *fmt;
+		if (c == '\0') {
 			break;
 		}
-		char tmp[64];
-		int  n = 0;
-		if (spec == 'd' || spec == 'i') {
-			int iv = arg < argc ? (int)minic_val_to_d(args[arg++]) : 0;
-			n      = snprintf(tmp, sizeof(tmp), "%d", iv);
+		fmt++;
+		spec[sp++] = c;
+		spec[sp]   = '\0';
+
+		char       *out  = buf && pos < bufsize ? buf + pos : NULL;
+		size_t      room = out ? (size_t)(bufsize - pos) : 0;
+		minic_val_t v    = strchr("diucxXoeEfFgGaAsp", c) && arg < argc ? args[arg++] : minic_val_int(0);
+		int         n;
+		switch (c) {
+		case 'd':
+		case 'i':
+		case 'c':
+			n = snprintf(out, room, spec, (int)minic_val_to_d(v));
+			break;
+		case 'u':
+		case 'x':
+		case 'X':
+		case 'o':
+			n = snprintf(out, room, spec, (unsigned)(int)minic_val_to_d(v));
+			break;
+		case 'e':
+		case 'E':
+		case 'f':
+		case 'F':
+		case 'g':
+		case 'G':
+		case 'a':
+		case 'A':
+			n = snprintf(out, room, spec, minic_val_to_d(v));
+			break;
+		case 's':
+			n = snprintf(out, room, spec, minic_read_str(v));
+			break;
+		case 'p':
+			n = snprintf(out, room, spec, minic_val_to_ptr(v));
+			break;
+		default:
+			n = snprintf(out, room, "%s", spec);
+			break;
 		}
-		else if (spec == 'u') {
-			unsigned uv = arg < argc ? (unsigned)(int)minic_val_to_d(args[arg++]) : 0u;
-			n           = snprintf(tmp, sizeof(tmp), "%u", uv);
-		}
-		else if (spec == 'f' || spec == 'g' || spec == 'e') {
-			double     dv       = arg < argc ? minic_val_to_d(args[arg++]) : 0.0;
-			const char fspec[3] = {'%', spec, '\0'};
-			n                   = snprintf(tmp, sizeof(tmp), fspec, dv);
-		}
-		else if (spec == 's') {
-			const char *sv   = arg < argc ? minic_read_str(args[arg++]) : "";
-			int         slen = (int)strlen(sv);
-			if (buf) {
-				int copy = slen < bufsize - 1 - pos ? slen : bufsize - 1 - pos;
-				if (copy > 0)
-					memcpy(buf + pos, sv, copy);
-			}
-			pos += slen;
-			continue;
-		}
-		else if (spec == 'p') {
-			void *pv = (arg < argc && args[arg].type == MINIC_T_PTR) ? args[arg++].p : (void *)(uintptr_t)(uint64_t)minic_val_to_d(args[arg++]);
-			n        = snprintf(tmp, sizeof(tmp), "%p", pv);
-		}
-		else if (spec == 'c') {
-			if (buf && pos < bufsize - 1)
-				buf[pos] = (char)(arg < argc ? (int)minic_val_to_d(args[arg++]) : 0);
-			pos++;
-			continue;
-		}
-		else {
-			if (buf && pos < bufsize - 1)
-				buf[pos] = '%';
-			pos++;
-			if (spec != '%') {
-				if (buf && pos < bufsize - 1)
-					buf[pos] = spec;
-				pos++;
-			}
-			continue;
-		}
-		if (n > 0) {
-			if (buf) {
-				int copy = n < bufsize - 1 - pos ? n : bufsize - 1 - pos;
-				if (copy > 0)
-					memcpy(buf + pos, tmp, copy);
-			}
-			pos += n;
-		}
+		pos += n > 0 ? n : 0;
 	}
-	if (buf && pos < bufsize)
-		buf[pos] = '\0';
+	if (buf && bufsize > 0) {
+		buf[pos < bufsize ? pos : bufsize - 1] = '\0';
+	}
 	return pos;
 }
 
@@ -125,6 +128,14 @@ static minic_val_t minic_printf_native(minic_val_t *args, int argc) {
 	return minic_val_int(len);
 }
 
+static minic_val_t minic_sprintf_native(minic_val_t *args, int argc) {
+	if (argc < 2 || args[0].type != MINIC_T_PTR || args[0].p == NULL)
+		return minic_val_int(0);
+	char       *dst = (char *)args[0].p;
+	const char *fmt = minic_read_str(args[1]);
+	return minic_val_int(minic_vformat(fmt, args + 2, argc - 2, dst, INT_MAX));
+}
+
 static minic_val_t minic_string_native(minic_val_t *args, int argc) {
 	if (argc < 1 || args[0].type != MINIC_T_PTR)
 		return minic_val_ptr(NULL);
@@ -135,48 +146,45 @@ static minic_val_t minic_string_native(minic_val_t *args, int argc) {
 	return minic_val_ptr(buf);
 }
 
-// iron_math wrappers: scripts store math types as arrays of boxed minic_val_t floats,
-// the C functions take and return them by value
-static void minic_box(minic_val_t *dst, const float *src, int n) {
-	for (int i = 0; i < n; ++i) {
-		dst[i] = minic_val_float(src[i]);
+static vec2_t minic_get_vec2(void *p) {
+	vec2_t value = {0};
+	if (p != NULL) {
+		memcpy(&value, p, sizeof(value));
 	}
+	return value;
 }
 
-static void minic_unbox(float *dst, const minic_val_t *src, int n) {
-	for (int i = 0; i < n; ++i) {
-		dst[i] = src[i].f;
+static vec4_t minic_get_vec4(void *p) {
+	vec4_t value = {0};
+	if (p != NULL) {
+		memcpy(&value, p, sizeof(value));
 	}
+	return value;
 }
 
-// Normalize math-type representation into raw floats: arena pointers are script values
-// stored as boxed minic_val_t, anything else is a native C struct field
-static void minic_read_floats(float *dst, void *p, int n) {
-	if (p == NULL) {
-		for (int i = 0; i < n; ++i) {
-			dst[i] = 0.0f;
-		}
+static quat_t minic_get_quat(void *p) {
+	quat_t value = {0};
+	if (p != NULL) {
+		memcpy(&value, p, sizeof(value));
 	}
-	else if (minic_in_arena(p)) {
-		minic_unbox(dst, (minic_val_t *)p, n);
-	}
-	else {
-		memcpy(dst, p, n * sizeof(float));
-	}
+	return value;
 }
 
-// clang-format off
-static vec2_t minic_get_vec2(void *p) { vec2_t v; minic_read_floats(&v.x, p, 2); return v; }
-static vec4_t minic_get_vec4(void *p) { vec4_t v; minic_read_floats(&v.x, p, 4); return v; }
-static quat_t minic_get_quat(void *p) { quat_t q; minic_read_floats(&q.x, p, 4); return q; }
-static mat3_t minic_get_mat3(void *p) { mat3_t m; minic_read_floats(m.m, p, 9); return m; }
-static mat4_t minic_get_mat4(void *p) { mat4_t m; minic_read_floats(m.m, p, 16); return m; }
-static void minic_set_vec2(minic_val_t *o, vec2_t v) { minic_box(o, &v.x, 2); }
-static void minic_set_vec4(minic_val_t *o, vec4_t v) { minic_box(o, &v.x, 4); }
-static void minic_set_quat(minic_val_t *o, quat_t q) { minic_box(o, &q.x, 4); }
-static void minic_set_mat3(minic_val_t *o, mat3_t m) { minic_box(o, m.m, 9); }
-static void minic_set_mat4(minic_val_t *o, mat4_t m) { minic_box(o, m.m, 16); }
-// clang-format on
+static mat3_t minic_get_mat3(void *p) {
+	mat3_t value = {0};
+	if (p != NULL) {
+		memcpy(&value, p, sizeof(value));
+	}
+	return value;
+}
+
+static mat4_t minic_get_mat4(void *p) {
+	mat4_t value = {0};
+	if (p != NULL) {
+		memcpy(&value, p, sizeof(value));
+	}
+	return value;
+}
 
 // A call may pass too few arguments or the wrong kind
 static void *minic_arg_ptr(minic_val_t *a, int c, int i) {
@@ -311,17 +319,21 @@ static float minic_arg_float(minic_val_t *a, int c, int i) {
 	e;                       \
 	return minic_val_void(); \
 	}
-#define MN_BOX(n, e, setter, count)                                                 \
-	MN_HEAD(n)                                                                      \
-	minic_val_t *_o = (minic_val_t *)minic_alloc(count * (int)sizeof(minic_val_t)); \
-	setter(_o, e);                                                                  \
-	return minic_val_ptr(_o);                                                       \
+// Return a native-layout value owned by the script arena.
+#define MN_VALUE(n, e, type)                               \
+	MN_HEAD(n)                                             \
+	type *result = (type *)minic_alloc((int)sizeof(type)); \
+	if (result == NULL) {                                  \
+		return minic_val_ptr(NULL);                        \
+	}                                                      \
+	*result = e;                                           \
+	return minic_val_ptr(result);                          \
 	}
-#define MN_V2(n, e) MN_BOX(n, e, minic_set_vec2, 2)
-#define MN_V4(n, e) MN_BOX(n, e, minic_set_vec4, 4)
-#define MN_Q(n, e)  MN_BOX(n, e, minic_set_quat, 4)
-#define MN_M3(n, e) MN_BOX(n, e, minic_set_mat3, 9)
-#define MN_M4(n, e) MN_BOX(n, e, minic_set_mat4, 16)
+#define MN_V2(n, e) MN_VALUE(n, e, vec2_t)
+#define MN_V4(n, e) MN_VALUE(n, e, vec4_t)
+#define MN_Q(n, e)  MN_VALUE(n, e, quat_t)
+#define MN_M3(n, e) MN_VALUE(n, e, mat3_t)
+#define MN_M4(n, e) MN_VALUE(n, e, mat4_t)
 
 #define X(kind, n, e) MN_##kind(n, e)
 MINIC_MATH_API
@@ -329,7 +341,7 @@ MINIC_MATH_API
 
 // All array types share the buffer/length/capacity layout
 static void minic_register_array_struct(const char *name, int size, minic_type_t buffer_deref) {
-	minic_struct_begin(name, size);
+	minic_struct_begin(name, size, MINIC_ALIGNOF(u8_array_t));
 	minic_struct_field("buffer", (int)offsetof(u8_array_t, buffer), MINIC_T_PTR, buffer_deref, NULL);
 	minic_struct_field("length", (int)offsetof(u8_array_t, length), MINIC_T_INT, MINIC_T_INT, NULL);
 	minic_struct_field("capacity", (int)offsetof(u8_array_t, capacity), MINIC_T_INT, MINIC_T_INT, NULL);
@@ -485,6 +497,7 @@ void minic_register_builtins() {
 	minic_api_sig_count = 0;
 
 	minic_register_native("printf", minic_printf_native);
+	minic_register_native("sprintf", minic_sprintf_native);
 	minic_register_native("string", minic_string_native);
 
 	// iron_array
@@ -525,11 +538,17 @@ void minic_register_builtins() {
 	MINIC_F(w);
 	MINIC_END();
 
-	// Script-layout matrices (boxed fields)
+	// Matrices expose named entries over their native float-array storage.
 	static const char *mat3_fields[] = {"m00", "m01", "m02", "m10", "m11", "m12", "m20", "m21", "m22"};
 	static const char *mat4_fields[] = {"m00", "m01", "m02", "m03", "m10", "m11", "m12", "m13", "m20", "m21", "m22", "m23", "m30", "m31", "m32", "m33"};
-	minic_register_struct("mat3_t", mat3_fields, 9);
-	minic_register_struct("mat4_t", mat4_fields, 16);
+	minic_struct_begin("mat3_t", sizeof(mat3_t), MINIC_ALIGNOF(mat3_t));
+	for (int i = 0; i < 9; ++i) {
+		minic_struct_field(mat3_fields[i], (int)offsetof(mat3_t, m) + i * (int)sizeof(float), MINIC_T_FLOAT, MINIC_T_FLOAT, NULL);
+	}
+	minic_struct_begin("mat4_t", sizeof(mat4_t), MINIC_ALIGNOF(mat4_t));
+	for (int i = 0; i < 16; ++i) {
+		minic_struct_field(mat4_fields[i], (int)offsetof(mat4_t, m) + i * (int)sizeof(float), MINIC_T_FLOAT, MINIC_T_FLOAT, NULL);
+	}
 
 	// iron_ui
 	MINIC_ENUM("ui_layout_t", "UI_LAYOUT_VERTICAL", "UI_LAYOUT_HORIZONTAL");
@@ -850,6 +869,9 @@ void minic_register_builtins() {
 static const char *minic_api_type_name(minic_type_t t, minic_type_t deref, const char *struct_name) {
 	if (t == MINIC_T_INT) {
 		return "int";
+	}
+	if (t == MINIC_T_DOUBLE) {
+		return "double";
 	}
 	if (t == MINIC_T_FLOAT) {
 		return "float";
