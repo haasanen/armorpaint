@@ -1136,7 +1136,20 @@ void tab_timeline_draw_edit() {
 	}
 }
 
-static char *tab_timeline_stage_name = "";
+static char *tab_timeline_stage_name   = "";
+static char *tab_timeline_stage_search = "";
+
+static int tab_timeline_sort_objects(const void *pa, const void *pb) {
+	mesh_object_t *a = *(mesh_object_t **)pa;
+	mesh_object_t *b = *(mesh_object_t **)pb;
+	return strcmp(a->base->name, b->base->name);
+}
+
+static int tab_timeline_sort_layers(const void *pa, const void *pb) {
+	slot_layer_t *a = *(slot_layer_t **)pa;
+	slot_layer_t *b = *(slot_layer_t **)pb;
+	return strcmp(a->name, b->name);
+}
 
 void tab_timeline_stage_edit_box_draw() {
 	stage_t *s = tab_stages_get_stage();
@@ -1145,20 +1158,28 @@ void tab_timeline_stage_edit_box_draw() {
 	}
 
 	if (tab_timeline_stage_edit_init) {
-		tab_timeline_stage_name = string_copy(s->name);
+		tab_timeline_stage_name   = string_copy(s->name);
+		tab_timeline_stage_search = "";
 		ui_start_text_edit(&tab_timeline_stage_name, UI_ALIGN_LEFT);
 		tab_timeline_stage_edit_init = false;
 	}
 
 	char *name = ui_text_input(&tab_timeline_stage_name, tr("Name"), UI_ALIGN_LEFT, true, false);
-	ui_end_element();
+
+	ui_text_input(&tab_timeline_stage_search, tr("Search"), UI_ALIGN_LEFT, true, true);
+	char *search = to_lower_case(tab_timeline_stage_search);
 
 	ui_text(tr("Meshes"), UI_ALIGN_LEFT, 0x00000000);
 
-	for (i32 i = 0; i < g_project->_->paint_objects->length; ++i) {
-		mesh_object_t *o        = g_project->_->paint_objects->buffer[i];
-		i32            idx      = string_array_index_of(s->objects, o->base->name);
-		bool           in_stage = idx >= 0;
+	any_array_t *objects = array_slice((any_array_t *)g_project->_->paint_objects, 0, g_project->_->paint_objects->length);
+	array_sort(objects, &tab_timeline_sort_objects);
+	for (i32 i = 0; i < objects->length; ++i) {
+		mesh_object_t *o = objects->buffer[i];
+		if (string_index_of(to_lower_case(o->base->name), search) < 0) {
+			continue;
+		}
+		i32  idx      = string_array_index_of(s->objects, o->base->name);
+		bool in_stage = idx >= 0;
 		ui_check(&in_stage, o->base->name, "");
 		if (ui_item_changed()) {
 			if (in_stage) {
@@ -1175,14 +1196,19 @@ void tab_timeline_stage_edit_box_draw() {
 			ui_base_hwnds->buffer[TAB_AREA_SIDEBAR0]->redraws = 2;
 		}
 	}
-	ui_end_element();
+	array_delete(objects);
 
 	ui_text(tr("Layers"), UI_ALIGN_LEFT, 0x00000000);
 
-	for (i32 i = 0; i < g_project->_->layers->length; ++i) {
-		slot_layer_t *l        = g_project->_->layers->buffer[i];
-		i32           idx      = string_array_index_of(s->layers, l->name);
-		bool          in_stage = idx >= 0;
+	any_array_t *layers = array_slice((any_array_t *)g_project->_->layers, 0, g_project->_->layers->length);
+	array_sort(layers, &tab_timeline_sort_layers);
+	for (i32 i = 0; i < layers->length; ++i) {
+		slot_layer_t *l = layers->buffer[i];
+		if (string_index_of(to_lower_case(l->name), search) < 0) {
+			continue;
+		}
+		i32  idx      = string_array_index_of(s->layers, l->name);
+		bool in_stage = idx >= 0;
 		ui_check(&in_stage, l->name, "");
 		if (ui_item_changed()) {
 			if (in_stage) {
@@ -1194,6 +1220,7 @@ void tab_timeline_stage_edit_box_draw() {
 			ui_base_hwnds->buffer[TAB_AREA_SIDEBAR0]->redraws = 2;
 		}
 	}
+	array_delete(layers);
 	ui_end_element();
 
 	ui_row2();
