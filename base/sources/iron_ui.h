@@ -366,6 +366,7 @@ void  ui_draw_shadow(float x, float y, float w, float h);
 void  ui_draw_rect(bool fill, bool shadows, float x, float y, float w, float h);
 void  ui_draw_round_bottom(float x, float y, float w);
 void  ui_start_text_edit(ui_handle_t *handle, int align);
+void  ui_deselect_text(ui_t *ui);
 void  ui_remove_char_at(char *str, int at);
 void  ui_remove_chars_at(char *str, int at, int count);
 void  ui_insert_char_at(char *str, int at, char c);
