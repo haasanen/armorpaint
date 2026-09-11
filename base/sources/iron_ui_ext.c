@@ -446,7 +446,9 @@ static char *ui_extract_word(char *str, int word) {
 		if (word_i > word) {
 			break;
 		}
-		temp[pos++] = str[i];
+		if (pos < (int)sizeof(temp) - 1) {
+			temp[pos++] = str[i];
+		}
 	}
 	temp[pos] = 0;
 	return temp;
@@ -626,14 +628,14 @@ char *ui_text_area(ui_handle_t *handle, int align, bool editable, char *label, b
 
 	char *lines = lines_buffer;
 	strcpy(lines, handle->text);
-	int  line_count              = ui_line_count(lines);
-	bool show_label              = (line_count == 1 && lines[0] == '\0');
+	bool show_label              = (lines[0] == '\0');
 	bool key_pressed             = selected && current->is_key_pressed;
 	current->highlight_on_select = false;
 	current->tab_switch_enabled  = false;
 	if (word_wrap && handle->text[0] != '\0') {
 		ui_text_area_word_wrap(lines, handle, selected);
 	}
+	int line_count = ui_line_count(lines);
 	if (ui_text_area_line_numbers) {
 		ui_text_area_draw_line_numbers(line_count);
 	}
