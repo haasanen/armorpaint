@@ -83,6 +83,33 @@ void tab_scripts_create(char *name) {
 	}
 }
 
+static void tab_scripts_duplicate() {
+	tab_scripts_prepare();
+	char *base = g_project->script_names->buffer[tab_scripts_selected];
+	if (ends_with(base, ".c")) {
+		base = substring(base, 0, string_length(base) - 2);
+	}
+	i32 len = string_length(base);
+	if (len > 3 && base[len - 1] >= '0' && base[len - 1] <= '9' && base[len - 2] >= '0' && base[len - 2] <= '9' && base[len - 3] >= '0' &&
+	    base[len - 3] <= '9') {
+		base = substring(base, 0, len - 3);
+	}
+	char *name = NULL;
+	for (i32 i = 1; i < 1000; ++i) {
+		char *n = string("%s%03d.c", base, i);
+		if (string_array_index_of(g_project->script_names, n) < 0) {
+			name = n;
+			break;
+		}
+	}
+	if (name != NULL) {
+		string_array_push(g_project->script_names, name);
+		string_array_push(g_project->script_datas, string_copy(g_project->script_datas->buffer[tab_scripts_selected]));
+		tab_scripts_selected      = g_project->script_datas->length - 1;
+		tab_scripts_minimap_dirty = true;
+	}
+}
+
 void tab_scripts_draw_export(char *path) {
 	char *str = tab_scripts_get();
 	char *f   = ui_files_filename;
@@ -137,6 +164,9 @@ void tab_scripts_draw_edit() {
 	}
 	if (ui_menu_button(tr("Export"), "", ICON_EXPORT)) {
 		ui_files_show("c", true, false, &tab_scripts_draw_export);
+	}
+	if (ui_menu_button(tr("Duplicate"), "", ICON_DUPLICATE)) {
+		tab_scripts_duplicate();
 	}
 	if (ui_menu_sub_button(tr("Templates"))) {
 		ui_menu_sub_begin(3);
