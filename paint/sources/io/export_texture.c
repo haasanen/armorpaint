@@ -6,7 +6,7 @@ static f32 export_texture_gamma = 1.0 / 2.2;
 static void export_texture_write_texture(char *file, buffer_t *pixels, i32 type, i32 off) {
 	i32 res_x       = config_get_texture_res_x();
 	i32 res_y       = config_get_texture_res_y();
-	i32 bits_handle = base_bits_handle->i;
+	i32 bits_handle = base_bits;
 	i32 bits        = bits_handle == TEXTURE_BITS_BITS8 ? 8 : bits_handle == TEXTURE_BITS_BITS16 ? 16 : 32;
 	i32 format      = 0; // RGBA
 	if (type == 1) {
@@ -163,7 +163,7 @@ static void export_texture_run_layers(char *path, slot_layer_t_array_t *layers, 
 		f = string_copy(tr("untitled"));
 	}
 	texture_ldr_format_t format_type = g_context->format_type;
-	i32                  bits        = base_bits_handle->i == TEXTURE_BITS_BITS8 ? 8 : 16;
+	i32                  bits        = base_bits == TEXTURE_BITS_BITS8 ? 8 : 16;
 	char                *ext         = bits == 16 ? ".exr" : format_type == TEXTURE_LDR_FORMAT_PNG ? ".png" : ".jpg";
 	if (ends_with(f, ext)) {
 		f = string_copy(substring(f, 0, string_length(f) - 4));
@@ -499,8 +499,8 @@ void export_texture_run(char *path, bool bake_material) {
 	// Exporting without opening the export box
 	if (box_export_files == NULL) {
 		box_export_fetch_presets();
-		i32 i                 = string_array_index_of(box_export_files, "generic");
-		box_export_hpreset->i = i > 0 ? i : 0;
+		i32 i                   = string_array_index_of(box_export_files, "generic");
+		box_export_preset_index = i > 0 ? i : 0;
 	}
 	if (box_export_preset == NULL) {
 		box_export_parse_preset();

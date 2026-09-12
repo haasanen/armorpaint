@@ -225,7 +225,7 @@ void export_arm_run_project() {
 	string_array_t *sound_files = export_arm_sounds_to_files(g_project->_->filepath, g_project->_->sounds);
 	string_array_t *mesh_files  = export_arm_meshes_to_files(g_project->_->filepath);
 
-	i32 bits_pos = base_bits_handle->i;
+	i32 bits_pos = base_bits;
 	i32 bpp      = bits_pos == TEXTURE_BITS_BITS8 ? 8 : bits_pos == TEXTURE_BITS_BITS16 ? 16 : 32;
 
 	layer_data_t_array_t *ld = any_array_create_from_raw((void *[]){}, 0);

@@ -205,7 +205,7 @@ static void render_path_paint_ref_snapshot(i32 tid, bool is_mask) {
 		render_path_draw_shader("Scene/copy_pass/copy_pass");
 		return;
 	}
-	char *format = base_bits_handle->i == TEXTURE_BITS_BITS8 ? "RGBA32" : base_bits_handle->i == TEXTURE_BITS_BITS16 ? "RGBA64" : "RGBA128";
+	char *format = base_bits == TEXTURE_BITS_BITS8 ? "RGBA32" : base_bits == TEXTURE_BITS_BITS16 ? "RGBA64" : "RGBA128";
 	render_path_paint_ref_target("texpaint_ref", format);
 	render_path_paint_ref_target("texpaint_nor_ref", format);
 	render_path_paint_ref_target("texpaint_pack_ref", format);
@@ -1195,7 +1195,7 @@ void render_path_paint_dilate(bool base, bool nor_pack) {
 		layers_make_temp_img();
 		i32 tid = g_context->layer->id;
 
-		char *format      = base_bits_handle->i == TEXTURE_BITS_BITS8 ? "RGBA32" : base_bits_handle->i == TEXTURE_BITS_BITS16 ? "RGBA64" : "RGBA128";
+		char *format      = base_bits == TEXTURE_BITS_BITS8 ? "RGBA32" : base_bits == TEXTURE_BITS_BITS16 ? "RGBA64" : "RGBA128";
 		char *copy_pass   = string_equals(format, "RGBA64") ? "copyRGBA64_pass" : string_equals(format, "RGBA128") ? "copyRGBA128_pass" : "copy_pass";
 		char *dilate_pass = string_equals(format, "RGBA64") ? "dilateRGBA64_pass" : string_equals(format, "RGBA128") ? "dilateRGBA128_pass" : "dilate_pass";
 

@@ -450,6 +450,11 @@ static const char *minic_api_sig_hint(const char *name) {
 		MINIC_RET_##r(name(MINIC_ARG_##t0(0), MINIC_ARG_##t1(1), MINIC_ARG_##t2(2), MINIC_ARG_##t3(3), MINIC_ARG_##t4(4), MINIC_ARG_##t5(5), \
 		                   MINIC_ARG_##t6(6), MINIC_ARG_##t7(7), MINIC_ARG_##t8(8)));                                                        \
 	}
+#define X10(name, sig, r, t0, t1, t2, t3, t4, t5, t6, t7, t8, t9)                                                                            \
+	static minic_val_t mw_##name(minic_val_t *a, int n) {                                                                                    \
+		MINIC_RET_##r(name(MINIC_ARG_##t0(0), MINIC_ARG_##t1(1), MINIC_ARG_##t2(2), MINIC_ARG_##t3(3), MINIC_ARG_##t4(4), MINIC_ARG_##t5(5), \
+		                   MINIC_ARG_##t6(6), MINIC_ARG_##t7(7), MINIC_ARG_##t8(8), MINIC_ARG_##t9(9)));                                     \
+	}
 #include "minic_api_list.h"
 #undef X0
 #undef X1
@@ -461,6 +466,7 @@ static const char *minic_api_sig_hint(const char *name) {
 #undef X7
 #undef X8
 #undef X9
+#undef X10
 
 // Pass 2: the registration table, in declaration order
 typedef struct {
@@ -480,6 +486,7 @@ typedef struct {
 #define X8(name, sig, r, t0, t1, t2, t3, t4, t5, t6, t7)     {#name, sig, mw_##name},
 #define X9(name, sig, r, t0, t1, t2, t3, t4, t5, t6, t7, t8) {#name, sig, mw_##name},
 static const minic_api_entry_t minic_api_entries[] = {
+#define X10(name, sig, r, t0, t1, t2, t3, t4, t5, t6, t7, t8, t9) {#name, sig, mw_##name},
 #include "minic_api_list.h"
 };
 #undef X0
@@ -492,6 +499,7 @@ static const minic_api_entry_t minic_api_entries[] = {
 #undef X7
 #undef X8
 #undef X9
+#undef X10
 
 void minic_register_builtins() {
 	minic_api_sig_count = 0;
@@ -561,20 +569,24 @@ void minic_register_builtins() {
 	MINIC_ENUM("tool_type_t", "TOOL_TYPE_BRUSH", "TOOL_TYPE_ERASER", "TOOL_TYPE_FILL", "TOOL_TYPE_DECAL", "TOOL_TYPE_TEXT", "TOOL_TYPE_CLONE", "TOOL_TYPE_BLUR",
 	           "TOOL_TYPE_PARTICLE", "TOOL_TYPE_COLORID", "TOOL_TYPE_PICKER", "TOOL_TYPE_MATERIAL", "TOOL_TYPE_CURSOR", "TOOL_TYPE_SELECT", "TOOL_TYPE_BAKE");
 
-	MINIC_STRUCT(ui_handle_t);
-	MINIC_I(i);
-	MINIC_F(f);
-	MINIC_I(b);
+	MINIC_STRUCT(ui_window_t);
 	MINIC_I(layout);
 	MINIC_F(scroll_offset);
-	MINIC_I(color);
 	MINIC_I(redraws);
 	MINIC_S(text);
-	MINIC_I(scroll_enabled);
-	MINIC_I(drag_enabled);
-	MINIC_I(changed);
-	MINIC_I(init);
-	MINIC_O(children, any_array_t);
+	MINIC_B(scroll_enabled);
+	MINIC_B(drag_enabled);
+	MINIC_END();
+
+	MINIC_STRUCT(ui_color_state_t);
+	MINIC_F(hue);
+	MINIC_F(sat);
+	MINIC_F(val);
+	MINIC_F(red);
+	MINIC_F(green);
+	MINIC_F(blue);
+	MINIC_F(alpha);
+	MINIC_I(mode);
 	MINIC_END();
 
 	MINIC_STRUCT(ui_node_socket_t);

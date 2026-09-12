@@ -168,8 +168,9 @@ static void import_arm_run_mesh_append_from_project(project_t *project, i32_arra
 	string_array_t      *mesh_names = string_array_create(0);
 	mesh_data_t_array_t *mesh_datas = import_arm_get_mesh_datas(project, mesh_names);
 
-	i32  appended = 0;
-	bool assigned = false;
+	i32            appended = 0;
+	bool           assigned = false;
+	mesh_object_t *first    = NULL;
 	for (i32 i = 0; i < mesh_datas->length; ++i) {
 		if (!import_arm_is_selected(selected, i)) {
 			continue;
@@ -195,6 +196,9 @@ static void import_arm_run_mesh_append_from_project(project_t *project, i32_arra
 		any_array_push(g_project->_->paint_objects, object);
 		tab_stages_add_object(object->base->name);
 		appended++;
+		if (first == NULL) {
+			first = object;
+		}
 
 		if (src_to_dest_mat != NULL) {
 			i32 src_mat = import_arm_mesh_material_index(project, i);
@@ -221,6 +225,7 @@ static void import_arm_run_mesh_append_from_project(project_t *project, i32_arra
 		context_main_object()->skip_context     = "paint";
 		g_context->merged_object->base->visible = true;
 	}
+	context_select_paint_object(first);
 
 	make_material_parse_paint_material(true);
 	make_material_parse_mesh_material();
@@ -563,11 +568,11 @@ void import_arm_run_project(char *path) {
 	project->_                           = g_project->_; // Carry over runtime arrays set up by project_new
 	g_project                            = project;
 	layer_data_t *l0                     = g_project->layer_datas->buffer[0];
-	base_res_handle->i                   = config_get_texture_res_pos(l0->res);
-	base_res_x_handle->f                 = (f32)l0->res;
-	base_res_y_handle->f                 = (f32)l0->res;
+	base_res                             = config_get_texture_res_pos(l0->res);
+	base_res_x                           = (f32)l0->res;
+	base_res_y                           = (f32)l0->res;
 	texture_bits_t bits_pos              = l0->bpp == 8 ? TEXTURE_BITS_BITS8 : l0->bpp == 16 ? TEXTURE_BITS_BITS16 : TEXTURE_BITS_BITS32;
-	base_bits_handle->i                  = bits_pos;
+	base_bits                            = bits_pos;
 	i32                  bytes_per_pixel = math_floor(l0->bpp / 8.0);
 	gpu_texture_format_t format          = l0->bpp == 8 ? GPU_TEXTURE_FORMAT_RGBA32 : l0->bpp == 16 ? GPU_TEXTURE_FORMAT_RGBA64 : GPU_TEXTURE_FORMAT_RGBA128;
 

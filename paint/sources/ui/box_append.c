@@ -105,20 +105,18 @@ void box_append_draw() {
 
 	if (box_append_mesh_selected != NULL && box_append_mesh_selected->length > 0) {
 		ui_text(tr("Meshes"), UI_ALIGN_LEFT, 0);
-		ui_handle_t *hmeshes = ui_handle(__ID__);
 		for (i32 i = 0; i < box_append_mesh_selected->length; ++i) {
 			bool exists = box_append_mesh_exists(i);
 			if (exists) {
 				box_append_mesh_selected->buffer[i] = 0;
 			}
-			ui_handle_t *h = ui_nest(hmeshes, i);
-			h->b           = box_append_mesh_selected->buffer[i] != 0;
-			g_ui->enabled  = !exists;
-			ui_check(h, box_append_mesh_name(box_append_project->mesh_datas->buffer[i], i), "");
+			bool selected = box_append_mesh_selected->buffer[i] != 0;
+			g_ui->enabled = !exists;
+			ui_check(&selected, box_append_mesh_name(box_append_project->mesh_datas->buffer[i], i), "");
 			g_ui->enabled = true;
-			if (!exists && h->changed) {
-				box_append_mesh_selected->buffer[i] = h->b ? 1 : 0;
-				if (h->b) {
+			if (!exists && ui_item_changed()) {
+				box_append_mesh_selected->buffer[i] = selected ? 1 : 0;
+				if (selected) {
 					box_append_select_mesh_material(i);
 				}
 			}
@@ -127,19 +125,17 @@ void box_append_draw() {
 
 	if (box_append_material_selected != NULL && box_append_material_selected->length > 0) {
 		ui_text(tr("Materials"), UI_ALIGN_LEFT, 0);
-		ui_handle_t *hmats = ui_handle(__ID__);
 		for (i32 i = 0; i < box_append_material_selected->length; ++i) {
 			bool exists = box_append_material_exists(i);
 			if (exists) {
 				box_append_material_selected->buffer[i] = 0;
 			}
-			ui_handle_t *h = ui_nest(hmats, i);
-			h->b           = box_append_material_selected->buffer[i] != 0;
-			g_ui->enabled  = !exists;
-			ui_check(h, box_append_material_name(box_append_project->material_nodes->buffer[i], i), "");
+			bool selected = box_append_material_selected->buffer[i] != 0;
+			g_ui->enabled = !exists;
+			ui_check(&selected, box_append_material_name(box_append_project->material_nodes->buffer[i], i), "");
 			g_ui->enabled = true;
-			if (!exists && h->changed) {
-				box_append_material_selected->buffer[i] = h->b ? 1 : 0;
+			if (!exists && ui_item_changed()) {
+				box_append_material_selected->buffer[i] = selected ? 1 : 0;
 			}
 		}
 	}

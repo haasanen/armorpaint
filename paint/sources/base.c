@@ -452,7 +452,7 @@ void base_update(void *_) {
 	}
 
 	bool using_menu = ui_menu_show && mouse_y > ui_header_h;
-	base_ui_enabled = !ui_box_show && !using_menu && g_ui->combo_selected_handle == NULL;
+	base_ui_enabled = !ui_box_show && !using_menu && g_ui->combo_selected_id == 0;
 
 	if (ui_box_show) {
 		ui_box_render();
@@ -860,34 +860,34 @@ void base_update_workspace() {
 	config_init_layout();
 
 	if (g_config->workspace == WORKSPACE_PAINT_3D) {
-		base_view3d_show  = true;
-		ui_menubar_tab->i = 0;
-		ui_view2d_show    = false;
-		ui_nodes_show     = false;
+		base_view3d_show = true;
+		ui_menubar_tab   = 0;
+		ui_view2d_show   = false;
+		ui_nodes_show    = false;
 	}
 	else if (g_config->workspace == WORKSPACE_PAINT_2D) {
-		base_view3d_show  = false;
-		ui_menubar_tab->i = -1;
-		ui_view2d_show    = true;
-		ui_nodes_show     = false;
+		base_view3d_show = false;
+		ui_menubar_tab   = -1;
+		ui_view2d_show   = true;
+		ui_nodes_show    = false;
 	}
 	else if (g_config->workspace == WORKSPACE_NODES) {
-		base_view3d_show  = false;
-		ui_menubar_tab->i = -1;
-		ui_view2d_show    = false;
-		ui_nodes_show     = true;
+		base_view3d_show = false;
+		ui_menubar_tab   = -1;
+		ui_view2d_show   = false;
+		ui_nodes_show    = true;
 
 		ui_sidebar_show(false);
 	}
 	else if (g_config->workspace == WORKSPACE_SCRIPT) {
-		base_view3d_show  = true;
-		ui_menubar_tab->i = 0;
-		ui_view2d_show    = false;
-		ui_nodes_show     = false;
+		base_view3d_show = true;
+		ui_menubar_tab   = 0;
+		ui_view2d_show   = false;
+		ui_nodes_show    = false;
 
-		ui_base_htabs->buffer[TAB_AREA_STATUS]->i        = 6; // Console
+		ui_base_tabs->buffer[TAB_AREA_STATUS]            = 6; // Console
 		g_config->layout_tabs->buffer[TAB_AREA_STATUS]   = 6;
-		ui_base_htabs->buffer[TAB_AREA_SIDEBAR0]->i      = 2; // Script
+		ui_base_tabs->buffer[TAB_AREA_SIDEBAR0]          = 2; // Script
 		g_config->layout_tabs->buffer[TAB_AREA_SIDEBAR0] = 2;
 
 		g_config->layout->buffer[LAYOUT_SIZE_STATUS_H]  = iron_window_height() * 0.2;

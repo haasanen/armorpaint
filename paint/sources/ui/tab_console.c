@@ -1,6 +1,9 @@
 
 #include "../global.h"
 
+char *tab_console_input      = "";
+i32   tab_console_input_line = 0;
+
 void tab_console_draw_export_on_file_picked(char *path) {
 	char *str = string_array_join(console_last_traces, "\n");
 	char *f   = ui_files_filename;
@@ -30,11 +33,11 @@ void tab_console_run_done(char *s) {
 #if defined(IRON_WINDOWS) || defined(IRON_LINUX) || defined(IRON_MACOS)
 
 void tab_console_run_button_on_next_frame(void *_) {
-	box_preferences_htab->i = PREFERENCES_TAB_NEURAL;
+	box_preferences_tab = PREFERENCES_TAB_NEURAL;
 	box_preferences_show();
 }
 
-bool tab_console_run_button(ui_handle_t *h_input, bool press_run) {
+bool tab_console_run_button(bool press_run) {
 	bool use_cli = g_config->console_model != CONSOLE_MODEL_QWEN;
 	bool found   = true;
 	if (!use_cli) {
@@ -50,10 +53,10 @@ bool tab_console_run_button(ui_handle_t *h_input, bool press_run) {
 		sys_notify_on_next_frame(&tab_console_run_button_on_next_frame, NULL);
 	}
 	else if (found && (ui_icon_button(tr("Run"), ICON_PLAY, UI_ALIGN_CENTER) || press_run)) {
-		char *prompt = string_replace_all(h_input->text, "\n", " ");
+		char *prompt = string_replace_all(tab_console_input, "\n", " ");
 		console_log(string(">%s", prompt));
 		text_to_text_node_run(prompt, tab_console_run_done);
-		h_input->text = "";
+		tab_console_input = "";
 		return true;
 	}
 	return false;
@@ -61,7 +64,7 @@ bool tab_console_run_button(ui_handle_t *h_input, bool press_run) {
 
 #endif
 
-void tab_console_draw(ui_handle_t *htab) {
+void tab_console_draw(i32 *htab) {
 	char *title = console_message_timer > 0 ? string_tmp("%s        ", console_message) : tr("Console");
 	i32   color = console_message_timer > 0 ? console_message_color : -1;
 
@@ -86,11 +89,9 @@ void tab_console_draw(ui_handle_t *htab) {
 #endif
 		ui_row(row);
 
-		ui_handle_t *h_input = ui_handle(__ID__);
-
 		if (ui_icon_button(tr("Clear"), ICON_ERASE, UI_ALIGN_CENTER)) {
 			console_last_traces = any_array_create_from_raw((void *[]){}, 0);
-			h_input->text       = "";
+			tab_console_input   = "";
 			text_to_text_node_clear();
 		}
 		if (ui_icon_button(tr("Export"), ICON_EXPORT, UI_ALIGN_CENTER)) {
@@ -155,14 +156,15 @@ void tab_console_draw(ui_handle_t *htab) {
 		f32 _input_w = g_ui->_w;
 		f32 input_w  = _input_w * 0.9;
 
-		g_ui->_w       = input_w;
-		bool press_run = g_ui->text_selected_handle == h_input && g_ui->is_key_pressed && g_ui->key_code == KEY_CODE_RETURN;
-		ui_text_area(h_input, UI_ALIGN_LEFT, true, "", true);
-		if (press_run && g_ui->text_selected_handle == h_input) {
+		g_ui->_w          = input_w;
+		ui_id_t input_id  = ui_widget_id(&tab_console_input, UI_ID_TEXT);
+		bool    press_run = g_ui->text_selected_id == input_id && g_ui->is_key_pressed && g_ui->key_code == KEY_CODE_RETURN;
+		ui_text_area(&tab_console_input, &tab_console_input_line, UI_ALIGN_LEFT, true, "", true);
+		if (press_run && g_ui->text_selected_id == input_id) {
 			ui_deselect_text(g_ui);
-			g_ui->submit_text_handle = NULL;
+			g_ui->submit_text_id = 0;
 		}
-		press_run   = press_run && h_input->text[0] != '\0';
+		press_run   = press_run && tab_console_input[0] != '\0';
 		f32 input_y = g_ui->_y;
 
 		ui_set_font(g_ui, _font);
@@ -173,13 +175,13 @@ void tab_console_draw(ui_handle_t *htab) {
 		g_ui->_w = _input_w - input_w;
 
 #if defined(IRON_WINDOWS) || defined(IRON_LINUX) || defined(IRON_MACOS)
-		tab_console_run_button(h_input, press_run);
+		tab_console_run_button(press_run);
 #else
 		if (ui_icon_button(tr("Run"), ICON_PLAY, UI_ALIGN_CENTER) || press_run) {
-			char *prompt = string_replace_all(h_input->text, "\n", " ");
+			char *prompt = string_replace_all(tab_console_input, "\n", " ");
 			console_log(string(">%s", prompt));
 			minic_ctx_free(minic_eval(string("float main() { %s }", prompt)));
-			h_input->text = "";
+			tab_console_input = "";
 		}
 #endif
 

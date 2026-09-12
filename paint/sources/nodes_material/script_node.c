@@ -23,9 +23,7 @@ void script_node_draw_snippets() {
 }
 
 void script_node_button(i32 node_id) {
-	ui_node_t   *node      = ui_get_node(ui_nodes_get_canvas(true)->nodes, node_id);
-	char        *node_name = parser_material_node_name(node, NULL);
-	ui_handle_t *h         = ui_handle(node_name);
+	ui_node_t *node = ui_get_node(ui_nodes_get_canvas(true)->nodes, node_id);
 
 	if (ui_button(tr("Snippets"), UI_ALIGN_CENTER, "")) {
 		script_node_draw_snippets_node = node;

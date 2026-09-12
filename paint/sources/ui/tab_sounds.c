@@ -33,44 +33,44 @@ void tab_sounds_draw_select_sound(void *_) {
 	context_select_sound(i);
 }
 
-void tab_sounds_draw(ui_handle_t *htab) {
+char *tab_sounds_search = "";
+
+void tab_sounds_draw(i32 *htab) {
 	if (ui_tab(htab, tr("Sounds"), false, -1, false) && g_ui->_window_h > ui_statusbar_default_h * UI_SCALE()) {
 
 		ui_begin_sticky();
 
-		ui_handle_t *hsearch = ui_handle(__ID__);
-
-		f32_array_t *row = string_equals(hsearch->text, "") ? f32_array_create_from_raw(
-		                                                          (f32[]){
-		                                                              -100,
-		                                                              -200,
-		                                                          },
-		                                                          2)
-		                                                    : f32_array_create_from_raw(
-		                                                          (f32[]){
-		                                                              -100,
-		                                                              -200,
-		                                                              -40,
-		                                                          },
-		                                                          3);
+		f32_array_t *row = string_equals(tab_sounds_search, "") ? f32_array_create_from_raw(
+		                                                              (f32[]){
+		                                                                  -100,
+		                                                                  -200,
+		                                                              },
+		                                                              2)
+		                                                        : f32_array_create_from_raw(
+		                                                              (f32[]){
+		                                                                  -100,
+		                                                                  -200,
+		                                                                  -40,
+		                                                              },
+		                                                              3);
 		ui_row(row);
 
 		if (ui_icon_button(tr("Import"), ICON_IMPORT, UI_ALIGN_CENTER)) {
 			project_import_asset("wav,ogg", true);
 		}
 
-		hsearch->text = string_copy(ui_text_input(hsearch, tr("Search"), UI_ALIGN_LEFT, true, true));
+		ui_text_input(&tab_sounds_search, tr("Search"), UI_ALIGN_LEFT, true, true);
 		if (g_ui->is_ctrl_down && g_ui->is_key_pressed && g_ui->key_code == KEY_CODE_F) {
-			ui_start_text_edit(hsearch, UI_ALIGN_LEFT);
+			ui_start_text_edit(&tab_sounds_search, UI_ALIGN_LEFT);
 		}
-		if (!string_equals(hsearch->text, "") && (ui_button(tr("X"), UI_ALIGN_CENTER, "") || g_ui->is_escape_down)) {
-			hsearch->text = "";
+		if (!string_equals(tab_sounds_search, "") && (ui_button(tr("X"), UI_ALIGN_CENTER, "") || g_ui->is_escape_down)) {
+			tab_sounds_search = "";
 		}
 
 		ui_end_sticky();
 		ui_separator(3, false);
 
-		char *search = to_lower_case(hsearch->text);
+		char *search = to_lower_case(tab_sounds_search);
 
 		i32 slotw = math_floor(51 * UI_SCALE());
 		i32 num   = math_floor(g_ui->_window_w / (float)slotw);

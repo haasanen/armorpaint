@@ -59,9 +59,9 @@ string_array_t *make_paint_color_attachments() {
 		return res;
 	}
 
-	gpu_texture_format_t format = base_bits_handle->i == TEXTURE_BITS_BITS8    ? GPU_TEXTURE_FORMAT_RGBA32
-	                              : base_bits_handle->i == TEXTURE_BITS_BITS16 ? GPU_TEXTURE_FORMAT_RGBA64
-	                                                                           : GPU_TEXTURE_FORMAT_RGBA128;
+	gpu_texture_format_t format = base_bits == TEXTURE_BITS_BITS8    ? GPU_TEXTURE_FORMAT_RGBA32
+	                              : base_bits == TEXTURE_BITS_BITS16 ? GPU_TEXTURE_FORMAT_RGBA64
+	                                                                 : GPU_TEXTURE_FORMAT_RGBA128;
 
 	if (format == GPU_TEXTURE_FORMAT_RGBA64) {
 		string_array_t *res = any_array_create_from_raw(

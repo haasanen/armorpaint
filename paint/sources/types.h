@@ -174,7 +174,7 @@ typedef struct slot_material {
 } slot_material_t;
 
 typedef struct tab_draw {
-	void (*f)(struct ui_handle *);
+	void (*f)(i32 *);
 } tab_draw_t;
 
 typedef struct tab_draw_t_array *tab_draw_array_t;
@@ -728,6 +728,7 @@ typedef struct neural_node_model {
 	struct string_array *urls;
 	char                *web;
 	char                *license;
+	bool                 expanded; // Preferences panel
 } neural_node_model_t;
 
 typedef struct float_node {
@@ -771,12 +772,6 @@ typedef struct mesh_object_t_array {
 	int             length;
 	int             capacity;
 } mesh_object_t_array_t;
-
-typedef struct ui_handle_t_array {
-	ui_handle_t **buffer;
-	int           length;
-	int           capacity;
-} ui_handle_t_array_t;
 
 typedef struct ui_node_canvas_t_array {
 	ui_node_canvas_t **buffer;
@@ -976,3 +971,14 @@ typedef struct stage_t_array {
 	int       length;
 	int       capacity;
 } stage_t_array_t;
+
+// Per node ui state of the custom node editors (ui_nodes_editor_state())
+typedef struct ui_nodes_editor_state {
+	i32              channel;
+	f32              index[4];
+	f32              x;
+	f32              y;
+	i32              interp;
+	ui_color_state_t color_state;
+	i32              line;
+} ui_nodes_editor_state_t;
