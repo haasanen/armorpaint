@@ -225,6 +225,8 @@ mesh_data_t *util_mesh_data_duplicate(mesh_data_t *source) {
 
 	mesh_data_t *md    = mesh_data_create(raw);
 	md->_->owns_arrays = true;
+	md->_->skin_blob   = source->_->skin_blob;
+	md->_->skin_frames = source->_->skin_frames;
 	return md;
 }
 
@@ -486,12 +488,7 @@ static void util_mesh_bake_transform(mesh_object_t *o, mat4_t inv_world) {
 	o->data->scale_pos = max_scale;
 }
 
-void util_mesh_merge_geometry() {
-	mesh_object_t_array_t *objects = g_project->_->paint_objects;
-	if (objects->length < 2) {
-		return;
-	}
-
+static void util_mesh_join_geometry(mesh_object_t_array_t *objects) {
 	// Keep the first object and join the geometry of the rest into it
 	mesh_object_t *main_object = objects->buffer[0];
 	mat4_t         inv_world   = mat4_inv(main_object->base->transform->world);
@@ -505,6 +502,33 @@ void util_mesh_merge_geometry() {
 	mesh_data_t *raw = util_mesh_build_merged_data(objects, main_object->data->name);
 	util_mesh_remove_merged();
 
+	mesh_data_t *md    = mesh_data_create(raw);
+	md->_->owns_arrays = true;
+	sys_notify_on_next_frame(&util_mesh_delete_data_uncache, main_object->data);
+	mesh_object_set_data(main_object, md);
+	transform_build_matrix(main_object->base->transform);
+	md->_->handle = string_copy(raw->name);
+	any_map_set(data_cached_meshes, md->_->handle, md);
+}
+
+static void util_mesh_geometry_joined() {
+	util_mesh_merge(NULL);
+	util_uv_uvmap_cached                              = false;
+	util_uv_trianglemap_cached                        = false;
+	util_uv_dilatemap_cached                          = false;
+	g_context->ddirty                                 = 2;
+	ui_base_hwnds->buffer[TAB_AREA_SIDEBAR0]->redraws = 2;
+}
+
+void util_mesh_merge_geometry() {
+	mesh_object_t_array_t *objects = g_project->_->paint_objects;
+	if (objects->length < 2) {
+		return;
+	}
+
+	mesh_object_t *main_object = objects->buffer[0];
+	util_mesh_join_geometry(objects);
+
 	string_array_t *merged_names = string_array_create(0);
 	for (i32 i = 1; i < objects->length; ++i) {
 		mesh_object_t *o = objects->buffer[i];
@@ -513,13 +537,6 @@ void util_mesh_merge_geometry() {
 		data_delete_mesh(o->data->_->handle);
 		mesh_object_remove(o);
 	}
-
-	mesh_data_t *md    = mesh_data_create(raw);
-	md->_->owns_arrays = true;
-	sys_notify_on_next_frame(&util_mesh_delete_data_uncache, main_object->data);
-	mesh_object_set_data(main_object, md);
-	md->_->handle = string_copy(raw->name);
-	any_map_set(data_cached_meshes, md->_->handle, md);
 
 	g_project->_->paint_objects = any_array_create_from_raw(
 	    (void *[]){
@@ -538,13 +555,52 @@ void util_mesh_merge_geometry() {
 	g_context->layer_filter = 0;
 	tab_stages_prune();
 	tab_meshes_reset_preview_map();
+	util_mesh_geometry_joined();
+}
 
-	util_mesh_merge(NULL);
-	util_uv_uvmap_cached                              = false;
-	util_uv_trianglemap_cached                        = false;
-	util_uv_dilatemap_cached                          = false;
-	g_context->ddirty                                 = 2;
-	ui_base_hwnds->buffer[TAB_AREA_SIDEBAR0]->redraws = 2;
+void util_mesh_merge_geometry_down(mesh_object_t *main_object, mesh_object_t *below) {
+	mesh_object_t_array_t *objects    = g_project->_->paint_objects;
+	i32                    main_index = array_index_of(objects, main_object);
+	i32                    index      = array_index_of(objects, below);
+	if (main_index < 0 || index < 0 || main_index == index) {
+		return;
+	}
+
+	util_mesh_join_geometry(any_array_create_from_raw_tmp((void *[]){main_object, below}, 2));
+
+	while (below->base->children->length > 0) {
+		object_t *child  = below->base->children->buffer[0];
+		mat4_t    world  = child->transform->world;
+		object_t *parent = child == main_object->base ? below->base->parent : main_object->base;
+		object_set_parent(child, parent);
+		mat4_t parent_world = child->parent != NULL ? child->parent->transform->world : mat4_identity();
+		transform_set_matrix(child->transform, mat4_mult_mat(world, mat4_inv(parent_world)));
+	}
+
+	char *merged_name = string_copy(below->base->name);
+	array_splice(objects, index, 1);
+	if (g_project->atlas_objects != NULL && index < g_project->atlas_objects->length) {
+		i32_array_splice(g_project->atlas_objects, index, 1);
+	}
+	object_set_parent(below->base, NULL);
+	util_mesh_delete_data_uncache(below->data);
+	mesh_object_remove(below);
+
+	i32 merged_mask = index + 1;
+	i32 new_mask    = (main_index < index ? main_index : main_index - 1) + 1;
+	for (i32 i = 0; i < g_project->_->layers->length; ++i) {
+		slot_layer_t *l = g_project->_->layers->buffer[i];
+		l->object_mask  = l->object_mask == merged_mask ? new_mask : l->object_mask > merged_mask ? l->object_mask - 1 : l->object_mask;
+	}
+	g_context->layer_filter = g_context->layer_filter == merged_mask  ? new_mask
+	                          : g_context->layer_filter > merged_mask ? g_context->layer_filter - 1
+	                                                                  : g_context->layer_filter;
+
+	tab_meshes_sort_hierarchy();
+	context_select_paint_object(main_object);
+	tab_timeline_on_mesh_deleted(merged_name);
+	tab_stages_prune();
+	util_mesh_geometry_joined();
 }
 
 void util_mesh_swap_axis(i32 a, i32 b) {
@@ -1497,4 +1553,75 @@ void util_mesh_subdivide() {
 #ifdef WITH_PLUGINS
 	plugin_uv_unwrap_button();
 #endif
+}
+
+static void _util_mesh_shift_object_masks(i32 from) {
+	if (g_project->_->layers != NULL) {
+		for (i32 i = 0; i < g_project->_->layers->length; ++i) {
+			slot_layer_t *l = g_project->_->layers->buffer[i];
+			if (l->object_mask >= from) {
+				++l->object_mask;
+			}
+		}
+	}
+	if (g_context->layer_filter >= from) {
+		++g_context->layer_filter;
+	}
+}
+
+mesh_object_t *util_mesh_duplicate_object(mesh_object_t *so) {
+	// Mesh
+	if (so == NULL) {
+		return NULL;
+	}
+
+	mesh_data_t   *data = so->data;
+	mesh_object_t *dup  = scene_add_mesh_object(data, so->material, so->base->parent);
+	transform_set_matrix(dup->base->transform, so->base->transform->local);
+
+	// Insert below the original
+	i32 index = array_index_of(g_project->_->paint_objects, so);
+	i32 at    = index < 0 ? g_project->_->paint_objects->length : index + 1;
+	array_insert((any_array_t *)g_project->_->paint_objects, at, dup);
+	_util_mesh_shift_object_masks(at + 1);
+
+	// Ensure unique name
+	dup->base->name = string_copy(_import_mesh_unique_name(so->base->name));
+	tab_stages_add_object(dup->base->name);
+
+	// Material override
+	i32 mat_index = tab_meshes_get_override(so);
+	if (mat_index >= 0) {
+		tab_meshes_set_override_data(dup, mat_index, so->material);
+		g_project->mesh_materials = i32_array_create(0);
+	}
+
+	// Physics
+	i32 shape = util_physics_get_shape(so->base);
+	if (shape >= 0) {
+		util_physics_set(dup->base, shape, util_physics_get_mass(so->base));
+	}
+
+	tab_meshes_sort_hierarchy();
+	tab_timeline_sync();
+
+	return dup;
+}
+
+void util_mesh_duplicate() {
+	mesh_object_t *dup = util_mesh_duplicate_object(g_context->paint_object);
+	if (dup != NULL) {
+		g_context->paint_object                           = dup;
+		ui_header_handle->redraws                         = 2;
+		ui_base_hwnds->buffer[TAB_AREA_SIDEBAR0]->redraws = 2;
+	}
+	util_mesh_merge(NULL);
+	g_context->ddirty = 2;
+}
+
+void util_mesh_delete() {
+	if (g_project->_->paint_objects->length < 2) {
+		return;
+	}
+	tab_meshes_draw_context_menu_delete(g_context->paint_object);
 }

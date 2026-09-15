@@ -271,6 +271,7 @@ X4(draw_cubic_bezier, "v(p:f32_array_t x,p:f32_array_t y,i segments,f strength)"
 // iron_audio
 #ifdef IRON_AUDIO
 X2(audio_play, "v(p:iron_a1_sound_t sound,i loop)", v, p, i)
+X1(audio_stop, "v(p:iron_a1_sound_t sound)", v, p)
 #endif
 
 // iron_string
@@ -552,6 +553,7 @@ X1(context_select_tool, "v(i i)", v, i)
 X3(gpu_create_render_target, "p:gpu_texture_t(i width,i height,i format)", p, i, i, i)
 X5(viewport_capture_screenshot_to, "v(p:gpu_texture_t target,f x,f y,f w,f h)", v, p, f, f, f, f)
 X1(viewport_save_texture, "v(p:gpu_texture_t screenshot)", v, p)
+X2(viewport_save_texture_to_file, "v(p:gpu_texture_t screenshot,p:char path)", v, p, p)
 X1(project_reskin_mesh, "b(i frame)", b, i)
 X0(iron_delay_idle_sleep, "v()", v)
 

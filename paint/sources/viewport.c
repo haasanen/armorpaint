@@ -116,6 +116,10 @@ void viewport_save_texture(gpu_texture_t *screenshot) {
 	import_texture_run(abs, true);
 }
 
+void viewport_save_texture_to_file(gpu_texture_t *screenshot, char *path) {
+	iron_write_png(path, gpu_get_texture_pixels(screenshot), screenshot->width, screenshot->height, 0);
+}
+
 void viewport_capture_screenshot() {
 	render_target_t *rt  = any_map_get(render_path_render_targets, "last");
 	gpu_texture_t   *tex = rt->_image;

@@ -141,6 +141,12 @@
 #include "render/render_path_raytrace_bake.c"
 #include "render/render_pathsphere.c"
 
+#include "slots/slot_brush.c"
+#include "slots/slot_font.c"
+#include "slots/slot_layer.c"
+#include "slots/slot_material.c"
+#include "slots/slot_sound.c"
+
 #include "traits/trait_point_and_click_controller.c"
 #include "traits/trait_third_person_controller.c"
 
@@ -188,6 +194,7 @@
 #include "util/util_nodes.c"
 #include "util/util_particle.c"
 #include "util/util_path.c"
+#include "util/util_physics.c"
 #include "util/util_raycast.c"
 #include "util/util_render.c"
 #include "util/util_resize.c"
@@ -220,12 +227,6 @@
 #include "plugin.c"
 #include "project.c"
 #include "resource.c"
-#include "sim.c"
-#include "slot_brush.c"
-#include "slot_font.c"
-#include "slot_layer.c"
-#include "slot_material.c"
-#include "slot_sound.c"
 #include "strings.c"
 #include "trait.c"
 #include "translator.c"
