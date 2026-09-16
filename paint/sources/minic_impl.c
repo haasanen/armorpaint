@@ -386,6 +386,10 @@ void script_append_mesh(char *path) {
 	g_context->ddirty = 2;
 }
 
+extern bool import_mesh_clear_layers;
+extern bool import_mesh_no_reset;
+extern bool import_mesh_append;
+
 void script_append_mesh_obj(char *data) {
 	if (data == NULL || data[0] == '\0') {
 		return;
@@ -393,7 +397,15 @@ void script_append_mesh_obj(char *data) {
 	gpu_texture_t *current;
 	bool           in_use;
 	script_gpu_begin(&current, &in_use);
-	import_mesh_run_obj(data);
+	import_mesh_clear_layers = false;
+	import_mesh_no_reset     = true;
+	import_mesh_append       = true;
+	g_context->layer_filter  = 0;
+	buffer_t *b              = buffer_create_from_raw((u8 *)data, strlen(data));
+	obj_parse_y_to_z_up      = false;
+	import_obj_parse(b, false);
+	obj_parse_y_to_z_up = true;
+	free(b);
 	script_gpu_end(current, in_use);
 	g_context->ddirty = 2;
 }
@@ -1128,6 +1140,18 @@ void script_fade_to_stage(char *stage) {
 
 	// Fade to black, set the stage, then fade back in
 	tween_to(ALLOC_INIT(tween_anim_t, {.target = &_script_fade_opacity, .to = 1.0f, .duration = 1.0f, .ease = EASE_LINEAR, .done = script_fade_out_done}));
+}
+
+void script_timeline_resume(void) {
+	tab_timeline_resume();
+}
+
+void script_timeline_pause(void) {
+	tab_timeline_pause();
+}
+
+void script_timeline_set_frame(i32 frame) {
+	tab_timeline_set_frame(frame);
 }
 
 typedef struct particle {
