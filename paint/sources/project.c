@@ -86,6 +86,10 @@ void project_cleanup() {
 	}
 
 	if (g_project->_->paint_objects != NULL) {
+		for (i32 i = 0; i < g_project->_->paint_objects->length; ++i) {
+			mesh_object_t *p = g_project->_->paint_objects->buffer[i];
+			object_set_parent(p->base, NULL);
+		}
 		for (i32 i = 1; i < g_project->_->paint_objects->length; ++i) {
 			mesh_object_t *p = g_project->_->paint_objects->buffer[i];
 			if (p == g_context->paint_object) {
@@ -211,6 +215,7 @@ void project_new(bool reset_layers) {
 		slot_material_unload(array_pop(g_project->_->materials));
 	}
 	any_array_push(g_project->_->materials, slot_material_create(m, NULL));
+	tab_meshes_reset_overrides();
 
 	g_context->picker_paint_mask    = false;
 	g_context->picker_viewport_mask = false;
@@ -371,10 +376,6 @@ void project_import_mesh(bool replace_existing, void (*done)(void)) {
 	ui_files_show(formats, false, false, &project_import_mesh_on_file_picked);
 }
 
-void project_append_mesh() {
-	project_import_mesh(false, import_mesh_finish_import);
-}
-
 void project_reimport_mesh() {
 	if (g_project->mesh_assets != NULL && g_project->mesh_assets->length > 0 && iron_file_exists(g_project->mesh_assets->buffer[0])) {
 		project_import_mesh_box(g_project->mesh_assets->buffer[0], true, false, true, NULL);
@@ -424,8 +425,11 @@ bool project_reskin_mesh(int frame) {
 	}
 
 	if (g_context->merged_object != NULL && g_config->workspace != WORKSPACE_PLAYER) {
-		if (!util_mesh_merge_reskin()) {
+		if (!util_mesh_merge_refresh()) {
 			util_mesh_merge(NULL);
+		}
+		if (g_context->viewport_mode == VIEWPORT_MODE_PATH_TRACE) {
+			sculpt_bake_to_mesh();
 		}
 	}
 	g_context->ddirty          = 4;

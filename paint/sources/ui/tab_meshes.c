@@ -238,6 +238,31 @@ void tab_meshes_set_override(mesh_object_t *o, i32 mat_index) {
 	tab_meshes_set_override_data(o, mat_index, NULL);
 }
 
+void tab_meshes_reset_overrides() {
+	shader_data_t *def = g_project->_->materials->buffer[0]->data;
+	for (i32 i = 0; i < g_project->_->paint_objects->length; ++i) {
+		mesh_object_t *o   = g_project->_->paint_objects->buffer[i];
+		shader_data_t *old = o->material;
+		o->material        = def;
+		if (old != def) {
+			tab_meshes_delete_override_material(old);
+		}
+	}
+
+	if (tab_meshes_override_map == NULL) {
+		return;
+	}
+	any_array_t *keys = map_keys(tab_meshes_override_map);
+	for (i32 i = 0; i < keys->length; ++i) {
+		free(any_map_get(tab_meshes_override_map, keys->buffer[i]));
+		free(keys->buffer[i]);
+	}
+	array_free(keys);
+	free(keys);
+	map_free(tab_meshes_override_map);
+	tab_meshes_override_map = NULL;
+}
+
 i32 tab_meshes_get_override(mesh_object_t *o) {
 	if (tab_meshes_override_map == NULL) {
 		return -1;
@@ -513,6 +538,7 @@ void tab_meshes_draw_transform_loc(mesh_object_t *o, char *ns) {
 		history_object_transform(o, prev_loc, t->rot, t->scale);
 		transform_build_matrix(t);
 		transform_compute_dim(t);
+		util_mesh_transform_changed();
 		g_context->ddirty = 2;
 	}
 }
@@ -534,6 +560,7 @@ void tab_meshes_draw_transform_rot(mesh_object_t *o, char *ns) {
 		t->rot = quat_from_euler(rot.x, rot.y, rot.z);
 		transform_build_matrix(t);
 		transform_compute_dim(t);
+		util_mesh_transform_changed();
 		g_context->ddirty = 2;
 	}
 }
@@ -552,6 +579,7 @@ void tab_meshes_draw_transform_scale(mesh_object_t *o, char *ns) {
 		history_object_transform(o, t->loc, t->rot, prev_scale);
 		transform_build_matrix(t);
 		transform_compute_dim(t);
+		util_mesh_transform_changed();
 		g_context->ddirty = 2;
 	}
 }
@@ -624,6 +652,7 @@ void tab_meshes_draw_context_menu() {
 	if (changed) {
 		transform_build_matrix(t);
 		transform_compute_dim(t);
+		util_mesh_transform_changed();
 		g_context->ddirty = 2;
 	}
 
@@ -875,15 +904,6 @@ void tab_meshes_draw_new() {
 		if (ui_menu_button(project_default_mesh_list->buffer[i], "", tab_meshes_mesh_name_to_icon(project_default_mesh_list->buffer[i]))) {
 			tab_meshes_append_shape(project_default_mesh_list->buffer[i]);
 		}
-	}
-}
-
-void tab_meshes_draw_import() {
-	if (ui_menu_button(tr("Replace Existing"), any_map_get(g_keymap, "file_import_assets"), ICON_NONE)) {
-		project_import_mesh(true, NULL);
-	}
-	if (ui_menu_button(tr("Append"), "", ICON_NONE)) {
-		project_append_mesh();
 	}
 }
 
@@ -1278,7 +1298,7 @@ void tab_meshes_draw(i32 *htab) {
 			ui_menu_draw(&tab_meshes_draw_new, -1, -1);
 		}
 		if (ui_icon_button(tr("Import"), ICON_IMPORT, UI_ALIGN_CENTER)) {
-			ui_menu_draw(&tab_meshes_draw_import, -1, -1);
+			project_import_mesh(true, NULL);
 		}
 		if (g_ui->is_hovered)
 			ui_tooltip(tr("Import mesh file"));
