@@ -499,6 +499,7 @@ void                      script_material_set_float(ui_node_t *node, i32 is_inpu
 void                      script_material_set_color(ui_node_t *node, i32 is_input, i32 socket, f32 r, f32 g, f32 b, f32 a);
 void                      script_material_set_vector(ui_node_t *node, i32 is_input, i32 socket, f32 x, f32 y, f32 z);
 void                      script_material_set_button(ui_node_t *node, i32 button, f32 value);
+void                      script_material_set_text(ui_node_t *node, i32 button, char *text);
 void                      script_material_update(void);
 void                      script_show_envmap(bool b);
 char                     *script_get_stage();
@@ -972,6 +973,7 @@ void                      rgb_node_init();
 void                      rgb_to_bw_node_init();
 void                      attribute_node_init();
 void                      shader_node_init();
+char                     *shader_node_reference();
 void                      save_image_node_init();
 void                      save_image_node_run(ui_node_t *node, gpu_texture_t *result);
 void                      repeat_node_init();
@@ -998,8 +1000,6 @@ i32                       neural_node_model(ui_node_t *node, string_array_t *mod
 char                     *neural_node_prompt(ui_node_t *node);
 char                     *neural_node_prompt_area(ui_node_t *node);
 void                      edit_image_node_init();
-void                      image_to_3d_mesh_node_init();
-void                      image_to_3d_mesh_node_button(i32 node_id);
 void                      brush_output_node_parse_inputs();
 void                      brush_output_node_init();
 void                      tex_image_node_init();
