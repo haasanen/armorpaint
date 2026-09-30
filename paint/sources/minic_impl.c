@@ -420,6 +420,19 @@ static void script_gpu_end(gpu_texture_t *current, bool in_use) {
 	}
 }
 
+static void script_bake_lightmap_done(void *fn) {
+	if (fn != NULL) {
+		minic_call_fn(fn, NULL, 0);
+	}
+}
+
+void script_bake_lightmap(object_t *o, i32 res, i32 samples, f32 range, char *path, void *done) {
+	if (o == NULL || o->ext == NULL || !string_equals(o->ext_type, "mesh_object_t") || path == NULL) {
+		return;
+	}
+	render_path_raytrace_bake_lightmap(o->ext, res, samples, range, path, script_bake_lightmap_done, done);
+}
+
 void script_quit(void) {
 	iron_stop();
 }
@@ -510,6 +523,17 @@ void script_append_mesh_obj(char *data) {
 	script_append_mesh_finish(first);
 	script_gpu_end(current, in_use);
 	g_context->ddirty = 2;
+}
+
+bool script_packed_asset_save(char *suffix, char *path) {
+	for (i32 i = 0; i < g_project->packed_assets->length; ++i) {
+		packed_asset_t *pa = g_project->packed_assets->buffer[i];
+		if (ends_with(pa->name, suffix)) {
+			iron_file_save_bytes(path, (buffer_t *)pa->bytes, ((buffer_t *)pa->bytes)->length);
+			return true;
+		}
+	}
+	return false;
 }
 
 void script_export_mesh(char *path) {

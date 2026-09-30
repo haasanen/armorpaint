@@ -1942,8 +1942,8 @@ void gpu_index_buffer_unlock(gpu_buffer_t *buffer) {
 	buffer->version = ++gpu_buffer_versions;
 	vkUnmapMemory(device, buffer->impl.mem);
 	VkBuffer upload_buffer = buffer->impl.buf;
-	_gpu_buffer_init(&buffer->impl.buf, &buffer->impl.mem, gpu_buffer_alloc_size(buffer->count, buffer->stride), VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-	                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+	_gpu_buffer_init(&buffer->impl.buf, &buffer->impl.mem, gpu_buffer_alloc_size(buffer->count, buffer->stride),
+	                 VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 	_gpu_buffer_copy(buffer->impl.buf, upload_buffer, gpu_buffer_alloc_size(buffer->count, buffer->stride));
 }
 
@@ -2723,7 +2723,7 @@ void gpu_raytrace_set_target(gpu_texture_t *_output) {
 		    .arrayLayers   = 1,
 		    .samples       = VK_SAMPLE_COUNT_1_BIT,
 		    .tiling        = VK_IMAGE_TILING_OPTIMAL,
-		    .usage         = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
+		    .usage         = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
 		};
 		vkCreateImage(device, &image_info, NULL, &_output->impl.image);
 
