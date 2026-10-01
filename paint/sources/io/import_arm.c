@@ -2,6 +2,8 @@
 #include "../global.h"
 
 scene_t *scene_raw_gc;
+static f64 import_arm_progress_last     = 0.0;
+static i32 import_arm_progress_unpacked = 0;
 
 void import_arm_run_project_on_next_frame(void *_) {
 	// Once envmap is imported
@@ -36,8 +38,9 @@ static mesh_data_t_array_t *import_arm_get_mesh_datas(project_t *project, string
 			string_array_push(mesh_names, object_name);
 		}
 		else {
-			mesh_data_t *md  = mesh_data_create(raw);
-			md->_->skin_blob = import_arm_get_mesh_skin(project, i);
+			mesh_data_t *md   = mesh_data_create(raw);
+			md->_->skin_blob  = import_arm_get_mesh_skin(project, i);
+			md->_->skin_frame = -1;
 			any_array_push(mesh_datas, md);
 			string_array_push(mesh_names, md->name);
 		}
@@ -380,6 +383,7 @@ void import_arm_unpack_asset(project_t *project, char *abs, char *file, bool cop
 	if (pa == NULL) {
 		return;
 	}
+	import_arm_progress_unpacked += ((buffer_t *)pa->bytes)->length;
 	gpu_texture_t *image = gpu_create_texture_from_encoded_bytes(pa->bytes, ends_with(pa->name, ".jpg") ? ".jpg" : ".png");
 	any_map_set(data_cached_textures, abs, image);
 }
@@ -389,11 +393,99 @@ void import_arm_unpack_sound(project_t *project, char *abs, char *file, bool cop
 	if (pa == NULL) {
 		return;
 	}
+	import_arm_progress_unpacked += ((buffer_t *)pa->bytes)->length;
 	sound_t *sound = iron_load_sound_from_bytes(pa->bytes, ends_with(pa->name, ".wav") ? ".wav" : ".ogg");
 	if (data_cached_sounds == NULL) {
 		data_cached_sounds = any_map_create();
 	}
 	any_map_set(data_cached_sounds, abs, sound);
+}
+
+typedef struct import_arm_image {
+	char               *abs;
+	buffer_t           *bytes; // Encoded
+	char               *format;
+	bool                packed;
+	bool                from_disk; // Read when its batch is decoded
+	bool                decoded;
+	iron_image_pixels_t pixels;
+} import_arm_image_t;
+
+typedef struct import_arm_decode {
+	import_arm_image_t *images;
+	i32                 end;
+	volatile int32_t    next;
+} import_arm_decode_t;
+
+#define IMPORT_ARM_DECODE_BUDGET  ((i64)256 * 1024 * 1024)
+#define IMPORT_ARM_DECODE_THREADS 16
+
+static bool import_arm_is_decodable(char *abs) {
+	char *ext = substring(abs, string_last_index_of(abs, ".") + 1, string_length(abs));
+	if (any_map_get(import_texture_importers, ext) != NULL) {
+		return false;
+	}
+	ext = to_lower_case(ext);
+	return string_equals(ext, "jpg") || string_equals(ext, "jpeg") || string_equals(ext, "png") || string_equals(ext, "hdr");
+}
+
+static void import_arm_decode_thread(void *arg) {
+	import_arm_decode_t *d = arg;
+	for (;;) {
+		i32 i = iron_atomic_increment(&d->next);
+		if (i >= d->end) {
+			break;
+		}
+		import_arm_image_t *im = &d->images[i];
+		if (im->bytes != NULL) {
+			im->decoded = iron_decode_image(im->bytes, im->format, &im->pixels);
+		}
+	}
+}
+
+static i32 import_arm_decode_images(import_arm_image_t *images, i32 start, i32 count) {
+	i64 pixel_bytes = 0;
+	i32 end         = start;
+	while (end < count) {
+		import_arm_image_t *im = &images[end];
+		if (im->from_disk && im->bytes == NULL) {
+			im->bytes = iron_load_blob(data_resolve_path(im->abs));
+		}
+		buffer_t *b    = im->bytes;
+		i64       size = 0;
+		i32       w;
+		i32       h;
+		i32       comp;
+		if (b != NULL && stbi_info_from_memory(b->buffer, b->length, &w, &h, &comp)) {
+			size = (i64)w * h * (stbi_is_hdr_from_memory(b->buffer, b->length) ? 16 : 4);
+		}
+		if (end > start && pixel_bytes + size > IMPORT_ARM_DECODE_BUDGET) {
+			break;
+		}
+		pixel_bytes += size;
+		end++;
+	}
+
+	import_arm_decode_t d            = {.images = images, .end = end, .next = start};
+	i32                 thread_count = iron_hardware_threads();
+	if (thread_count > IMPORT_ARM_DECODE_THREADS) {
+		thread_count = IMPORT_ARM_DECODE_THREADS;
+	}
+	if (thread_count > end - start) {
+		thread_count = end - start;
+	}
+	if (thread_count <= 1) {
+		import_arm_decode_thread(&d);
+		return end;
+	}
+	iron_thread_t threads[IMPORT_ARM_DECODE_THREADS];
+	for (i32 i = 0; i < thread_count; ++i) {
+		iron_thread_init(&threads[i], import_arm_decode_thread, &d);
+	}
+	for (i32 i = 0; i < thread_count; ++i) {
+		iron_thread_wait_and_destroy(&threads[i]);
+	}
+	return end;
 }
 
 static void import_arm_import_materials(project_t *project, char *path, i32_array_t *selected, bool delete_blob) {
@@ -527,6 +619,30 @@ void import_arm_run_swatches_from_project(project_t *project, char *path, bool r
 	data_delete_blob(path);
 }
 
+static void import_arm_progress(f32 progress) {
+	if (gpu_in_use) {
+		return;
+	}
+	f64 t = iron_time();
+	if (progress > 0.0 && progress < 1.0 && t - import_arm_progress_last < 1.0 / 30.0) {
+		return;
+	}
+	import_arm_progress_last = t;
+	i32 w  = iron_window_width();
+	i32 h  = iron_window_height();
+	i32 bw = w / 4;
+	i32 bh = h / 180 > 2 ? h / 180 : 2;
+	i32 bx = (w - bw) / 2;
+	i32 by = (ui_header_h - bh) / 2;
+	draw_begin(NULL, args_player, 0xff000000);
+	draw_set_color(g_theme->BUTTON_COL);
+	draw_filled_rect(bx, by, bw, bh);
+	draw_set_color(g_theme->HIGHLIGHT_COL);
+	draw_filled_rect(bx, by, bw * progress, bh);
+	draw_end();
+	gpu_present();
+}
+
 static void import_arm_sculpt_init(void *_) {
 	if (history_undo_layers == NULL) {
 		return;
@@ -536,6 +652,7 @@ static void import_arm_sculpt_init(void *_) {
 }
 
 void import_arm_run_project(char *path) {
+	import_arm_progress(0.0);
 	buffer_t *b = data_get_blob(path);
 	if (b == NULL) {
 		console_error(string("Could not open file %s.", path));
@@ -579,6 +696,18 @@ void import_arm_run_project(char *path) {
 
 	g_context->layers_preview_dirty = true;
 	g_context->layer_filter         = 0;
+	import_arm_progress(0.1);
+
+	i32 progress_assets = project->assets->length + (project->sound_assets != NULL ? project->sound_assets->length : 0);
+	i32 progress_loaded = 0;
+	i32 progress_bytes  = 1;
+	if (project->packed_assets != NULL) {
+		for (i32 i = 0; i < project->packed_assets->length; ++i) {
+			packed_asset_t *pa = project->packed_assets->buffer[i];
+			progress_bytes += ((buffer_t *)pa->bytes)->length;
+		}
+	}
+	import_arm_progress_unpacked = 0;
 
 	project_new(import_as_mesh);
 	g_project->_->filepath = string_copy(path);
@@ -640,7 +769,10 @@ void import_arm_run_project(char *path) {
 		camera_origins[0]   = (vec4_t){origin->buffer[0], origin->buffer[1], origin->buffer[2], 1.0};
 	}
 
-	for (i32 i = 0; i < g_project->assets->length; ++i) {
+	// Gather the encoded images first, so they can be decoded in parallel
+	i32                 image_count = g_project->assets->length;
+	import_arm_image_t *images      = calloc(image_count > 0 ? image_count : 1, sizeof(import_arm_image_t));
+	for (i32 i = 0; i < image_count; ++i) {
 		char *file = g_project->assets->buffer[i];
 #ifdef IRON_WINDOWS
 		file = string_copy(string_replace_all(file, "/", "\\"));
@@ -650,15 +782,51 @@ void import_arm_run_project(char *path) {
 		// Convert image path from relative to absolute
 		char *abs = data_is_abs(file) ? file : string("%s%s", base, file);
 		if (g_project->packed_assets != NULL) {
-			abs = string_copy(path_normalize(abs));
-			import_arm_unpack_asset(g_project, abs, file, false);
+			abs                = string_copy(path_normalize(abs));
+			packed_asset_t *pa = import_arm_take_packed_asset(g_project, abs, file, false);
+			if (pa != NULL) {
+				images[i].bytes  = pa->bytes;
+				images[i].format = ends_with(pa->name, ".jpg") ? ".jpg" : ".png";
+				images[i].packed = true;
+			}
+		}
+		if (images[i].bytes == NULL && any_map_get(data_cached_textures, abs) == NULL && import_arm_is_decodable(abs) && iron_file_exists(abs)) {
+			images[i].from_disk = true;
+			images[i].format    = abs;
+		}
+		images[i].abs = abs;
+	}
+
+	i32 decoded_end = 0;
+	for (i32 i = 0; i < image_count; ++i) {
+		if (i == decoded_end) {
+			decoded_end = import_arm_decode_images(images, i, image_count);
+		}
+		import_arm_image_t *im  = &images[i];
+		char               *abs = im->abs;
+		if (im->decoded) {
+			if (any_map_get(data_cached_textures, abs) == NULL) {
+				any_map_set(data_cached_textures, abs, gpu_create_texture_from_pixels(&im->pixels));
+			}
+			else { // Listed twice
+				free(im->pixels.data);
+			}
+		}
+		if (im->packed) {
+			import_arm_progress_unpacked += im->bytes->length;
+		}
+		else if (im->bytes != NULL) {
+			iron_delete_blob(im->bytes);
 		}
 		if (any_map_get(data_cached_textures, abs) == NULL && !iron_file_exists(abs)) {
 			import_arm_make_pink(abs);
 		}
 		bool hdr_as_envmap = ends_with(abs, ".hdr") && g_project->envmap != NULL && string_equals(g_project->envmap, path_normalize(abs));
 		import_texture_run(abs, hdr_as_envmap);
+		progress_loaded++;
+		import_arm_progress(0.1 + 0.7 * (0.8 * import_arm_progress_unpacked / (f32)progress_bytes + 0.2 * progress_loaded / (f32)progress_assets));
 	}
+	free(images);
 
 	if (g_project->font_assets != NULL) {
 		for (i32 i = 0; i < g_project->font_assets->length; ++i) {
@@ -693,12 +861,15 @@ void import_arm_run_project(char *path) {
 			if (iron_file_exists(abs) || (data_cached_sounds != NULL && any_map_get(data_cached_sounds, abs) != NULL)) {
 				import_sound_run(abs);
 			}
+			progress_loaded++;
+			import_arm_progress(0.1 + 0.7 * (0.8 * import_arm_progress_unpacked / (f32)progress_bytes + 0.2 * progress_loaded / (f32)progress_assets));
 		}
 	}
 
 	string_array_t      *mesh_names = string_array_create(0);
 	mesh_data_t_array_t *mesh_datas = import_arm_get_mesh_datas(g_project, mesh_names);
 
+	import_arm_progress(0.8);
 	mesh_data_t *md = mesh_datas->buffer[0];
 
 	mesh_object_set_data(g_context->paint_object, md);
@@ -874,6 +1045,8 @@ void import_arm_run_project(char *path) {
 		}
 	}
 
+	import_arm_progress(0.85);
+
 	// Assign parents to groups and masks
 	for (i32 i = 0; i < g_project->layer_datas->length; ++i) {
 		layer_data_t *ld = g_project->layer_datas->buffer[i];
@@ -967,6 +1140,7 @@ void import_arm_run_project(char *path) {
 		}
 	}
 
+	import_arm_progress(0.9);
 	if (g_project->mesh_materials != NULL) {
 		i32             mat_count = g_project->_->materials->length;
 		shader_data_t **mat_cache = calloc(mat_count, sizeof(shader_data_t *));
@@ -1006,6 +1180,7 @@ void import_arm_run_project(char *path) {
 		}
 	}
 
+	import_arm_progress(0.95);
 	tab_meshes_sort_hierarchy();
 
 	tab_stages_init();
@@ -1026,6 +1201,7 @@ void import_arm_run_project(char *path) {
 		g_context->merged_object->base->visible = true;
 	}
 
+	import_arm_progress(1.0);
 	sys_notify_on_next_frame(&import_arm_run_project_on_next_frame, NULL);
 
 	base_update_workflow();

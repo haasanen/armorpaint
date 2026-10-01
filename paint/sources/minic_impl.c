@@ -264,6 +264,19 @@ gpu_texture_t *script_get_texture(char *s) {
 	return NULL;
 }
 
+void script_texture_delete(char *s) {
+	if (s == NULL || g_project == NULL || g_project->_ == NULL || g_project->_->assets == NULL) {
+		return;
+	}
+	for (int i = 0; i < g_project->_->assets->length; ++i) {
+		asset_t *asset = g_project->_->assets->buffer[i];
+		if (string_equals(asset->name, s)) {
+			tab_textures_delete_texture(asset);
+			return;
+		}
+	}
+}
+
 static bool script_paint_active = false;
 static bool script_paint_first  = true;
 
@@ -420,6 +433,18 @@ static void script_gpu_end(gpu_texture_t *current, bool in_use) {
 	}
 }
 
+buffer_t *script_get_texture_pixels(gpu_texture_t *texture) {
+	if (texture == NULL || texture->format == GPU_TEXTURE_FORMAT_D32) {
+		return NULL;
+	}
+	gpu_texture_t *current;
+	bool           in_use;
+	script_gpu_begin(&current, &in_use);
+	buffer_t *b = gpu_get_texture_pixels(texture);
+	script_gpu_end(current, in_use);
+	return b;
+}
+
 static void script_bake_lightmap_done(void *fn) {
 	if (fn != NULL) {
 		minic_call_fn(fn, NULL, 0);
@@ -534,6 +559,28 @@ bool script_packed_asset_save(char *suffix, char *path) {
 		}
 	}
 	return false;
+}
+
+i32 script_packed_assets_remove(char *search) {
+	if (g_project->packed_assets == NULL || search == NULL) {
+		return 0;
+	}
+	i32 removed = 0;
+	i32 i       = 0;
+	while (i < g_project->packed_assets->length) {
+		if (string_index_of(g_project->packed_assets->buffer[i]->name, search) >= 0) {
+			array_splice(g_project->packed_assets, i, 1);
+			removed++;
+		}
+		else {
+			i++;
+		}
+	}
+	return removed;
+}
+
+void script_set_pack_assets(i32 pack) {
+	g_context->pack_assets_on_save = pack != 0;
 }
 
 void script_export_mesh(char *path) {
