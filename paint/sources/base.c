@@ -46,12 +46,7 @@ void base_init_on_start_arm(void *_) {
 	if (base_start_arm_found) {
 		import_arm_run_project(g_project->_->filepath);
 	}
-	g_context->tool = TOOL_TYPE_CURSOR;
-	// Auto-run main script
-	if (g_project->script_datas != NULL && g_project->script_datas->length > 0) {
-		minic_ctx_t *ctx = minic_eval(g_project->script_datas->buffer[0]);
-	}
-	tab_timeline_play();
+	player_run_scripts();
 }
 
 void base_save_window_rect() {
@@ -202,6 +197,28 @@ void base_init_undo_layers() {
 		}
 		slot_layer_alloc_textures(history_undo_layers->buffer[history_undo_i]);
 	}
+}
+
+static void base_draw_console_lines() {
+	// Show last console lines in distract free mode
+	f32 scale = UI_SCALE();
+	draw_begin(NULL, false, 0);
+	draw_set_font(g_font, math_floor(UI_FONT_SIZE()));
+	draw_set_color(g_theme->TEXT_COL);
+	f32 line_h = draw_font_height(draw_font, draw_font_size) * 1.2;
+	f32 x      = 10 * scale;
+	f32 y      = iron_window_height() - 10 * scale - line_h;
+	i32 n      = 0;
+	for (i32 i = console_last_traces->length - 1; i >= 0 && n < 5; --i) {
+		any_array_t *parts = string_split(console_last_traces->buffer[i], "\n");
+		for (i32 j = parts->length - 1; j >= 0 && n < 5; --j) {
+			draw_string(parts->buffer[j], x, y - n * line_h);
+			n++;
+		}
+		string_split_free(parts);
+	}
+	draw_set_color(0xffffffff);
+	draw_end();
 }
 
 void base_update(void *_) {
@@ -465,13 +482,22 @@ void base_update(void *_) {
 	}
 
 	bool using_menu = ui_menu_show && mouse_y > ui_header_h;
-	base_ui_enabled = !ui_box_show && !using_menu && g_ui->combo_selected_id == 0;
+	base_ui_enabled = !ui_box_show && !using_menu && g_ui->combo_selected_id == 0 && !agent_running;
 
+	if (!ui_base_show && !player_in_editor && !base_player_lock && gpu_framebuffer_redirect == NULL) {
+		base_draw_console_lines();
+	}
 	if (ui_box_show) {
 		ui_box_render();
 	}
 	if (ui_menu_show) {
 		ui_menu_render();
+	}
+
+	if (agent_running && gpu_framebuffer_redirect == NULL) {
+		draw_begin(NULL, false, 0);
+		agent_draw_overlay();
+		draw_end();
 	}
 
 #if defined(IRON_ANDROID) || defined(IRON_IOS)
@@ -978,17 +1004,21 @@ void base_update_workflow() {
 	}
 }
 
-void base_run_in_player() {
-#ifdef IRON_WASM
-	iron_delete_file("/player/start.arm");
-	iron_load_url("/?player");
+static void base_run_in_player_export(char *path) {
 	gpu_texture_t *current = _draw_current;
 	bool           in_use  = gpu_in_use;
 	if (in_use)
 		draw_end();
-	export_arm_run_project("/player/start.arm");
+	export_arm_run_project(path);
 	if (in_use)
 		draw_begin(current, false, 0);
+}
+
+void base_run_in_player() {
+#ifdef IRON_WASM
+	iron_delete_file("/player/start.arm");
+	iron_load_url("/?player");
+	base_run_in_player_export("/player/start.arm");
 	return;
 #endif
 
@@ -996,7 +1026,7 @@ void base_run_in_player() {
 		console_error(tr("Save project first"));
 		return;
 	}
-	export_arm_run_project(g_project->_->filepath);
+	base_run_in_player_export(g_project->_->filepath);
 	char *bin = iron_get_arg(0);
 	iron_sys_command(string("\"%s\" \"%s\" --player", bin, g_project->_->filepath));
 }

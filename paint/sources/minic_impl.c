@@ -180,7 +180,9 @@ void *script_next_frame_fn = NULL;
 void  script_on_next_frame(void *_) {
     void *fn             = script_next_frame_fn;
     script_next_frame_fn = NULL;
-    minic_call_fn(fn, NULL, 0);
+    if (fn != NULL) {
+        minic_call_fn(fn, NULL, 0);
+    }
 }
 void script_notify_on_next_frame(void *fn) {
 	sys_notify_on_next_frame(script_on_next_frame, NULL);
@@ -191,6 +193,14 @@ bool script_is_running(void) {
 	return script_update_fn != NULL || script_next_frame_fn != NULL;
 }
 
+void script_stop(void) {
+	if (script_update_fn != NULL) {
+		sys_remove_update(script_on_update);
+		script_update_fn = NULL;
+	}
+	script_next_frame_fn = NULL;
+}
+
 void *_ui_files_done;
 void  _ui_files_show_done(char *path) {
     minic_val_t args[1] = {minic_val_ptr(path)};
@@ -199,6 +209,107 @@ void  _ui_files_show_done(char *path) {
 void ui_files_show2(char *filters, bool is_save, bool open_multiple, void *files_done) {
 	_ui_files_done = files_done;
 	ui_files_show(filters, is_save, open_multiple, _ui_files_show_done);
+}
+
+static any_array_t *script_cloud_init_fns  = NULL;
+static any_array_t *script_cloud_dl_paths  = NULL;
+static any_array_t *script_cloud_dl_fns    = NULL;
+static bool         script_cloud_dl_active = false;
+static void         script_cloud_dl_next(void);
+
+static bool script_cloud_ready(void) {
+	return file_cloud != NULL && any_map_get(file_cloud, "cloud") != NULL;
+}
+
+static void script_cloud_on_init_done(void) {
+	ui_files_file_browser_on_init_cloud_done();
+}
+
+static void script_cloud_wait(void *_) {
+	if (!script_cloud_ready()) {
+		sys_notify_on_next_frame(script_cloud_wait, NULL);
+		return;
+	}
+	any_array_t *fns      = script_cloud_init_fns;
+	script_cloud_init_fns = NULL;
+	for (i32 i = 0; i < fns->length; ++i) {
+		minic_call_fn(fns->buffer[i], NULL, 0);
+	}
+	script_cloud_dl_next();
+}
+
+static void script_cloud_ensure(void *fn) {
+	if (script_cloud_init_fns == NULL) {
+		script_cloud_init_fns = any_array_create(0);
+		if (file_cloud == NULL) {
+			file_init_cloud(script_cloud_on_init_done, g_config->server);
+		}
+		sys_notify_on_next_frame(script_cloud_wait, NULL);
+	}
+	if (fn != NULL) {
+		any_array_push(script_cloud_init_fns, fn);
+	}
+}
+
+void script_cloud_init(void *done) {
+	if (script_cloud_ready()) {
+		minic_call_fn(done, NULL, 0);
+		return;
+	}
+	script_cloud_ensure(done);
+}
+
+static void script_cloud_dl_done(char *dest) {
+	void *fn = array_shift(script_cloud_dl_fns);
+	array_shift(script_cloud_dl_paths);
+	script_cloud_dl_active = false;
+	if (fn != NULL) {
+		minic_val_t args[1] = {minic_val_ptr(dest != NULL ? string_copy(dest) : NULL)};
+		minic_call_fn(fn, args, 1);
+	}
+	script_cloud_dl_next();
+}
+
+static void script_cloud_dl_next(void) {
+	if (script_cloud_dl_active || script_cloud_dl_paths == NULL || script_cloud_dl_paths->length == 0) {
+		return;
+	}
+	if (!script_cloud_ready()) {
+		script_cloud_ensure(NULL);
+		return;
+	}
+	char *path = script_cloud_dl_paths->buffer[0];
+	script_cloud_dl_active = true;
+	if (i32_map_get(file_cloud_sizes, path) < 0) {
+		console_error(string("Cloud file not found: %s", path));
+		script_cloud_dl_done(NULL);
+		return;
+	}
+	file_cache_cloud(path, script_cloud_dl_done, g_config->server);
+}
+
+void script_cloud_download(char *path, void *done) {
+	if (script_cloud_dl_paths == NULL) {
+		script_cloud_dl_paths = any_array_create(0);
+		script_cloud_dl_fns   = any_array_create(0);
+	}
+	any_array_push(script_cloud_dl_paths, string_copy(path));
+	any_array_push(script_cloud_dl_fns, done);
+	script_cloud_dl_next();
+}
+
+static void script_cloud_reset(void) {
+	if (script_cloud_init_fns != NULL) {
+		script_cloud_init_fns->length = 0;
+	}
+	if (script_cloud_dl_paths != NULL) {
+		i32 keep                      = script_cloud_dl_active ? 1 : 0;
+		script_cloud_dl_paths->length = keep;
+		script_cloud_dl_fns->length   = keep;
+		if (keep) {
+			script_cloud_dl_fns->buffer[0] = NULL;
+		}
+	}
 }
 
 char *project_filepath_get() {
@@ -1450,5 +1561,103 @@ void script_draw_particles(gpu_texture_t *texture, float x, float y, float w, fl
 		draw_set_color(col);
 		// draw_sub_image(texture, frame_x * cell_w, frame_y * cell_w, cell_w, cell_w, p->x, p->y);
 		draw_scaled_sub_image(texture, frame_x * cell_w, frame_y * cell_w, cell_w, cell_w, p->x, p->y, cell_w * 2, cell_w * 2);
+	}
+}
+
+void script_reset_runtime(void) {
+	script_stop();
+	tween_reset();
+	sys_remove_update(script_message_draw);
+	_script_message = NULL;
+	sys_remove_update(script_fade_draw);
+	_script_fade_stage   = NULL;
+	_script_fade_opacity = 0.0f;
+	memset(particles, 0, sizeof(particles));
+	_script_tween_transform = NULL;
+	script_cloud_reset();
+#ifdef IRON_AUDIO
+	if (data_cached_sounds != NULL) {
+		string_array_t *keys = map_keys(data_cached_sounds);
+		for (i32 i = 0; i < keys->length; ++i) {
+			audio_stop(any_map_get(data_cached_sounds, keys->buffer[i]));
+		}
+	}
+#endif
+}
+
+typedef struct script_screenshot_request {
+	char *path;
+	i32   frames;
+	void (*done)(void);
+} script_screenshot_request_t;
+
+static any_array_t    *_script_screenshot_queue  = NULL;
+static gpu_texture_t *_script_screenshot_target = NULL;
+static i32            _script_screenshot_frames = 0;
+
+static void script_screenshot_next(void);
+
+static void script_screenshot_end_frame(void *_) {
+	script_screenshot_request_t *r = _script_screenshot_queue->buffer[0];
+	gpu_framebuffer_redirect       = NULL;
+
+	draw_begin(NULL, false, 0);
+	draw_image(_script_screenshot_target, 0, 0);
+	if (agent_running) {
+		agent_draw_overlay();
+	}
+	draw_end();
+
+	buffer_t *pixels = gpu_get_texture_pixels(_script_screenshot_target);
+	for (i32 i = 3; i < pixels->length; i += 4) {
+		pixels->buffer[i] = 255;
+	}
+	iron_write_png(r->path, pixels, _script_screenshot_target->width, _script_screenshot_target->height, 0);
+	gpu_delete_texture(_script_screenshot_target);
+	_script_screenshot_target = NULL;
+
+	array_shift(_script_screenshot_queue);
+	if (r->done != NULL) {
+		r->done();
+	}
+	script_screenshot_next();
+}
+
+static void script_screenshot_capture(void *_) {
+	iron_delay_idle_sleep();
+	script_screenshot_request_t *r = _script_screenshot_queue->buffer[0];
+	if (++_script_screenshot_frames < r->frames) {
+		g_context->ddirty = 2;
+		base_redraw_ui();
+		sys_notify_on_next_frame(script_screenshot_capture, NULL);
+		return;
+	}
+	_script_screenshot_target = gpu_create_render_target(iron_window_width(), iron_window_height(), GPU_TEXTURE_FORMAT_RGBA32);
+	gpu_framebuffer_redirect  = _script_screenshot_target;
+	sys_notify_on_end_frame(script_screenshot_end_frame, NULL);
+}
+
+static void script_screenshot_next(void) {
+	if (_script_screenshot_queue->length == 0) {
+		return;
+	}
+	_script_screenshot_frames = 0;
+	sys_notify_on_next_frame(script_screenshot_capture, NULL);
+}
+
+void script_screenshot_queue(char *path, i32 frames, void (*done)(void)) {
+	if (_script_screenshot_queue == NULL) {
+		_script_screenshot_queue = any_array_create(0);
+	}
+	script_screenshot_request_t *r = ALLOC_INIT(script_screenshot_request_t, {.path = string_copy(path), .frames = frames, .done = done});
+	any_array_push(_script_screenshot_queue, r);
+	if (_script_screenshot_queue->length == 1) {
+		script_screenshot_next();
+	}
+}
+
+void script_screenshot(char *path) {
+	if (path != NULL) {
+		script_screenshot_queue(path, 1, NULL);
 	}
 }

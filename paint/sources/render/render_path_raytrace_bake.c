@@ -186,7 +186,7 @@ bool render_path_raytrace_bake_commands(void (*parse_paint_material)(bool)) {
 }
 
 typedef struct lightmap_job {
-	mesh_object_t *object;
+	i32            object_uid;
 	i32            res;
 	i32            samples;
 	f32            range;
@@ -302,12 +302,22 @@ static void lightmap_delete_textures() {
 	lightmap_mask = NULL;
 }
 
-static void lightmap_begin(lightmap_job_t *job) {
+static mesh_object_t *lightmap_find_object(i32 uid) {
+	for (i32 i = 0; i < scene_meshes->length; ++i) {
+		mesh_object_t *o = scene_meshes->buffer[i];
+		if (o->base->uid == uid) {
+			return o;
+		}
+	}
+	return NULL;
+}
+
+static void lightmap_begin(lightmap_job_t *job, mesh_object_t *object) {
 	i32  res      = job->res;
 	f32 *pos      = calloc((size_t)res * res * 4, sizeof(f32));
 	f32 *nor      = calloc((size_t)res * res * 4, sizeof(f32));
 	lightmap_mask = calloc((size_t)res * res, 1);
-	lightmap_raster(job->object, res, pos, nor, lightmap_mask);
+	lightmap_raster(object, res, pos, nor, lightmap_mask);
 	lightmap_pos         = malloc(sizeof(gpu_texture_t));
 	lightmap_nor         = malloc(sizeof(gpu_texture_t));
 	lightmap_pos->buffer = NULL;
@@ -316,7 +326,7 @@ static void lightmap_begin(lightmap_job_t *job) {
 	gpu_texture_init_from_bytes(lightmap_nor, nor, res, res, GPU_TEXTURE_FORMAT_RGBA128, false);
 	free(pos);
 	free(nor);
-	lightmap_target = gpu_create_render_target(res, res, GPU_TEXTURE_FORMAT_RGBA128);
+	lightmap_target = gpu_create_render_target(res, res, GPU_TEXTURE_FORMAT_RGBA64);
 
 	if (lightmap_base == NULL) {
 		// Albedo of geometry without a material, light only output
@@ -400,7 +410,11 @@ static void lightmap_blur(f32 *px, u8 *m, i32 res) {
 static void lightmap_write(lightmap_job_t *job) {
 	i32       res = job->res;
 	buffer_t *b   = gpu_get_texture_pixels(lightmap_target);
-	f32      *px  = (f32 *)b->buffer;
+	u16      *h   = (u16 *)b->buffer;
+	f32      *px  = malloc(sizeof(f32) * 4 * res * res);
+	for (i32 i = 0; i < res * res * 4; ++i) {
+		px[i] = render_path_raytrace_half_to_float(h[i]);
+	}
 	u8       *m   = lightmap_mask;
 	lightmap_blur(px, m, res);
 	u8 *m2 = malloc((size_t)res * res);
@@ -460,6 +474,7 @@ static void lightmap_write(lightmap_job_t *job) {
 	else {
 		iron_write_png(job->path, out, res, res, 2); // RGB
 	}
+	free(px);
 }
 
 static void lightmap_update(void *_) {
@@ -475,7 +490,19 @@ static void lightmap_update(void *_) {
 			lightmap_jobs[i - 1] = lightmap_jobs[i];
 		}
 		lightmap_jobs_count--;
-		lightmap_begin(lightmap_job);
+		mesh_object_t *object = lightmap_find_object(lightmap_job->object_uid);
+		if (object != NULL) {
+			lightmap_begin(lightmap_job, object);
+		}
+		else {
+			free(lightmap_job->path);
+			free(lightmap_job);
+			lightmap_job = NULL;
+			if (lightmap_jobs_count == 0) {
+				sys_remove_update(lightmap_update);
+				g_context->viewport_mode = lightmap_viewport_mode;
+			}
+		}
 	}
 	else if (lightmap_frame < lightmap_frames) {
 		lightmap_dispatch();
@@ -504,7 +531,7 @@ static void lightmap_update(void *_) {
 
 void render_path_raytrace_bake_lightmap(mesh_object_t *object, i32 res, i32 samples, f32 range, char *path, void (*done)(void *), void *done_data) {
 	lightmap_job_t *job = calloc(1, sizeof(lightmap_job_t));
-	job->object         = object;
+	job->object_uid     = object->base->uid;
 	job->res            = res;
 	job->samples        = samples;
 	job->range          = range > 0.0f ? range : 1.0f;
