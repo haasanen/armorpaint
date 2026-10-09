@@ -30,33 +30,12 @@ void tab_materials_update_material() {
 	base_update_workflow_nodes();
 }
 
-static bool tab_materials_is_unique_name(char *s) {
-	for (i32 i = 0; i < g_project->_->materials->length; ++i) {
-		slot_material_t *m = g_project->_->materials->buffer[i];
-		if (string_equals(m->canvas->name, s)) {
-			return false;
-		}
-	}
-	return true;
-}
-
-static char *tab_materials_unique_name(char *name) {
-	char *base;
-	i32   i   = strings_split_number_ext(name, &base);
-	char *res = string_tmp("%s%s", base, strings_number_ext(++i));
-	while (!tab_materials_is_unique_name(res)) {
-		res = string_tmp("%s%s", base, strings_number_ext(++i));
-	}
-	return res;
-}
-
 void tab_materials_draw_slots_duplicate(void *_) {
 	i32   i             = _tab_materials_draw_slots;
-	char *name          = tab_materials_unique_name(g_project->_->materials->buffer[i]->canvas->name);
 	g_context->material = slot_material_create(g_project->_->materials->buffer[0]->data, NULL);
 	any_array_push(g_project->_->materials, g_context->material);
 	ui_node_canvas_t *cloned    = util_clone_canvas(g_project->_->materials->buffer[i]->canvas);
-	cloned->name                = string_copy(name);
+	cloned->name                = string_copy(slot_material_unique_name(cloned, cloned->name));
 	g_context->material->canvas = cloned;
 	tab_materials_update_material();
 	history_duplicate_material();
@@ -308,15 +287,11 @@ void tab_materials_draw_slots(bool mini) {
 			if (g_context->material == g_project->_->materials->buffer[i]) {
 				if (mini) {
 					f32 w = g_ui->_w / (float)UI_SCALE();
-					ui_rect(0, -2, w - 2, w - 4, g_theme->HIGHLIGHT_COL, 3);
+					ui_rect_round(0, -2, w - 2, w - 4, g_theme->HIGHLIGHT_COL, 3);
 				}
 				else {
-					i32 off = row % 2 == 1 ? 1 : 0;
-					i32 w   = 50 + math_floor(g_config->window_scale * 2);
-					ui_fill(-1, -2, w + 3, 2, g_theme->HIGHLIGHT_COL);
-					ui_fill(-1, w - off, w + 3, 2 + off, g_theme->HIGHLIGHT_COL);
-					ui_fill(-1, -2, 2, w + 3, g_theme->HIGHLIGHT_COL);
-					ui_fill(w + 1, -2, 2, w + 4, g_theme->HIGHLIGHT_COL);
+					i32 w = 50 + math_floor(g_config->window_scale * 2);
+					ui_rect_round(0, -1, w + 2, w + 2, g_theme->HIGHLIGHT_COL, 2 * UI_SCALE());
 				}
 			}
 

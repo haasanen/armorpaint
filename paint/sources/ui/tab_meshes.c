@@ -61,6 +61,24 @@ static bool tab_meshes_has_children(mesh_object_t *o) {
 	return false;
 }
 
+static void tab_meshes_set_children_visible(object_t *parent, bool visible, bool *merge) {
+	stage_t *stage = tab_stages_get_stage();
+	for (i32 i = 0; i < g_project->_->paint_objects->length; ++i) {
+		mesh_object_t *c = g_project->_->paint_objects->buffer[i];
+		if (c->base->parent != parent) {
+			continue;
+		}
+		c->base->visible = visible;
+		if (stage != NULL) {
+			tab_stages_set_hidden(stage, c->base->name, !visible);
+		}
+		if (tab_meshes_get_linked_override(c) < 0) {
+			*merge = true;
+		}
+		tab_meshes_set_children_visible(c->base, visible, merge);
+	}
+}
+
 i32 tab_meshes_depth(mesh_object_t *o) {
 	i32       depth = 0;
 	object_t *p     = o->base->parent;
@@ -1074,7 +1092,7 @@ void tab_meshes_draw_mesh_slot(mesh_object_t *o, i32 i) {
 		f32 absy = g_ui->_window_y + g_ui->_y;
 		if (mouse_y > absy && mouse_y < absy + step * 2) {
 			tab_meshes_material_drop_index = i;
-			ui_rect(1, 0, g_ui->_w / (float)UI_SCALE() - 2, step * 2, g_theme->HIGHLIGHT_COL, 2);
+			ui_rect_round(1, 0, g_ui->_w / (float)UI_SCALE() - 2, step * 2, g_theme->HIGHLIGHT_COL, 2);
 		}
 	}
 
@@ -1106,8 +1124,14 @@ void tab_meshes_draw_mesh_slot(mesh_object_t *o, i32 i) {
 	g_ui->_y             = uiy + 3 + center;
 	i32 col              = g_theme->HOVER_COL + 0x00282828;
 	if (ui_sub_image(icons, col, 18 * UI_SCALE(), r->x, r->y, r->w, r->h) == UI_STATE_RELEASED) {
-		o->base->visible = !o->base->visible;
+		bool visible = !o->base->visible;
+		bool merge   = false;
+		tab_meshes_set_children_visible(o->base, visible, &merge);
+		o->base->visible = visible;
 		tab_stages_apply_visible(o);
+		if (merge && tab_meshes_get_linked_override(o) >= 0) {
+			util_mesh_visibility_changed();
+		}
 	}
 
 	// Nested offset
@@ -1251,7 +1275,7 @@ void tab_meshes_draw_mesh_slot(mesh_object_t *o, i32 i) {
 
 	// Highlight selected
 	if (g_context->paint_object == o) {
-		ui_rect(1, -step * 2 - 1, g_ui->_w / (float)UI_SCALE() - 2, step * 2 + 1, g_theme->HIGHLIGHT_COL, 2);
+		ui_rect_round(1, -step * 2 - 1, g_ui->_w / (float)UI_SCALE() - 2, step * 2 + 1, g_theme->HIGHLIGHT_COL, 2);
 	}
 }
 
