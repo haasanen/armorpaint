@@ -429,6 +429,9 @@ static void script_paint_begin_stroke(void) {
 	if (history_undo_layers != NULL) {
 		history_paint();
 	}
+	if (g_context->layer->texpaint_sculpt != NULL) {
+		render_path_sculpt_snapshot_gbuffer();
+	}
 
 	script_paint_active         = true;
 	script_paint_first          = true;
@@ -453,6 +456,10 @@ static void script_paint_at(f32 x, f32 y) {
 	f32 prev_x = script_paint_first ? x : g_context->paint_vec.x;
 	f32 prev_y = script_paint_first ? y : g_context->paint_vec.y;
 
+	if (script_paint_first) {
+		g_context->grab_start_x = x;
+		g_context->grab_start_y = y;
+	}
 	g_context->decal_x          = x;
 	g_context->decal_y          = y;
 	g_context->paint_vec.x      = x;
@@ -1046,6 +1053,31 @@ i32 script_assets_remove(char *search) {
 	return removed;
 }
 
+i32 script_pack_assets(char *search) {
+	if (search == NULL) {
+		return 0;
+	}
+	asset_t_array_t *assets = any_array_create_from_raw((void *[]){}, 0);
+	for (i32 i = 0; i < g_project->_->assets->length; ++i) {
+		asset_t *a = g_project->_->assets->buffer[i];
+		if (string_index_of(a->file, search) >= 0 &&
+		    (g_project->packed_assets == NULL || !project_packed_asset_exists(g_project->packed_assets, a->file))) {
+			any_array_push(assets, a);
+		}
+	}
+	i32 packed = assets->length;
+	if (packed > 0) {
+		gpu_texture_t *current;
+		bool           in_use;
+		script_gpu_begin(&current, &in_use);
+		export_arm_pack_assets(g_project, assets);
+		script_gpu_end(current, in_use);
+	}
+	array_free(assets);
+	free(assets);
+	return packed;
+}
+
 void script_set_pack_assets(i32 pack) {
 	g_context->pack_assets_on_save = pack != 0;
 }
@@ -1130,7 +1162,11 @@ void script_object_set_material(object_t *o, slot_material_t *m) {
 		script_object_material_slot = m;
 		script_object_material_data = make_mesh_preview_viewport(m);
 	}
+	bool was_paintable = tab_meshes_get_linked_override(o->ext) < 0;
 	tab_meshes_set_override_data(o->ext, index, index >= 0 ? script_object_material_data : NULL);
+	if (was_paintable != (tab_meshes_get_linked_override(o->ext) < 0)) {
+		util_mesh_visibility_changed();
+	}
 	g_project->mesh_materials = i32_array_create(0);
 	g_context->ddirty         = 2;
 }

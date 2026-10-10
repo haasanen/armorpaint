@@ -7,7 +7,7 @@
 
 char *manifest_title           = "ArmorPaint";
 char *manifest_version         = "1.1alpha";
-char *manifest_version_project = "16";
+char *manifest_version_project = "17";
 char *manifest_version_config  = "1";
 char *manifest_url             = "https://armorpaint.org";
 char *manifest_url_android     = "https://play.google.com/store/apps/details?id=org.armorpaint";
@@ -329,6 +329,7 @@ gpu_texture_t  *util_uv_dilatemap                = NULL;
 bool            util_uv_dilatemap_cached         = false;
 gpu_texture_t  *util_uv_uvislandmap              = NULL;
 bool            util_uv_uvislandmap_cached       = false;
+bool            util_mesh_merged_stale           = false;
 i32             render_path_raytrace_frame       = 0;
 bool            render_path_raytrace_ready       = false;
 bool            render_path_raytrace_init_shader = true;
@@ -349,6 +350,10 @@ any_imap_t                  *neural_node_results;
 ui_node_t                   *neural_node_current;
 i32                          neural_node_downloading = 0;
 neural_node_model_t_array_t *neural_node_models      = NULL;
+
+char *account_token = NULL; // NULL when signed out
+char *account_email = NULL; // NULL until /auth/me answers
+char *account_code  = NULL; // Shown while signing in, "" until the server hands one out
 
 #ifdef IRON_DIRECT3D12
 char *render_path_raytrace_ext = ".cso";
