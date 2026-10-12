@@ -23,14 +23,6 @@ void base_on_shutdown() {
 	config_save();
 }
 
-void base_on_background() {
-	// Release keys after alt-tab / win-tab
-	_key_up(KEY_CODE_ALT, NULL);
-	_key_up(KEY_CODE_WIN, NULL);
-	_key_up(KEY_CODE_CONTROL, NULL);
-	_key_up(KEY_CODE_SHIFT, NULL);
-}
-
 void base_on_foreground() {
 	g_context->foreground_event = true;
 	g_context->last_paint_x     = -1;
@@ -514,7 +506,7 @@ void base_init() {
 	base_last_window_height = iron_window_height();
 
 	sys_notify_on_drop_files(&base_on_drop_files);
-	sys_notify_on_app_state(&base_on_foreground, &base_on_background, &base_on_shutdown);
+	sys_notify_on_app_state(&base_on_foreground, NULL, &base_on_shutdown);
 	iron_set_save_and_quit_callback(base_save_and_quit_callback);
 	agent_init();
 
@@ -604,7 +596,7 @@ void base_init() {
 	}
 
 	if (args_player) {
-		base_player_lock = true;
+		base_player_lock    = true;
 		g_config->workspace = WORKSPACE_PLAYER;
 		base_update_workspace();
 		make_material_parse_paint_material(true);
@@ -783,6 +775,13 @@ string_array_t *base_combo_enum_texts(char *node_type) {
 		for (i32 i = 0; i < g_project->_->materials->length; ++i) {
 			slot_material_t *m = g_project->_->materials->buffer[i];
 			string_array_push(&texts, m->canvas->name);
+		}
+		return &texts;
+	}
+
+	if (string_equals(node_type, "MESH_OBJECT")) {
+		for (i32 i = 0; i < g_project->_->paint_objects->length; ++i) {
+			string_array_push(&texts, g_project->_->paint_objects->buffer[i]->base->name);
 		}
 		return &texts;
 	}

@@ -573,7 +573,13 @@ bool iron_internal_handle_messages(void) {
 	                                       inMode:NSDefaultRunLoopMode
 	                                      dequeue:YES]; // distantPast: non-blocking
 	if (event != nil) {
-		[myapp sendEvent:event];
+		// Key up is not delivered to the view while cmd is held, keys would stay down
+		if ([event type] == NSEventTypeKeyUp && ([event modifierFlags] & NSEventModifierFlagCommand)) {
+			[[myapp keyWindow] sendEvent:event];
+		}
+		else {
+			[myapp sendEvent:event];
+		}
 		[myapp updateWindows];
 	}
 
@@ -604,6 +610,10 @@ static void create_window(iron_window_options_t *options) {
 	[window setAcceptsMouseMovedEvents:YES];
 	[[window contentView] addSubview:view];
 	[window center];
+	if (options->x >= 0 && options->y >= 0) {
+		float scale = [[NSScreen mainScreen] backingScaleFactor];
+		[window setFrameTopLeftPoint:NSMakePoint(options->x / scale, [[NSScreen mainScreen] frame].size.height - options->y / scale)];
+	}
 
 	windows[0].handle = window;
 	windows[0].view   = view;
@@ -698,7 +708,9 @@ const char *iron_language(void) {
 	return language;
 }
 
-void iron_internal_shutdown(void) {}
+void iron_internal_shutdown(void) {
+	iron_internal_shutdown_callback();
+}
 
 const char *iron_internal_save_path(void) {
 	NSArray  *paths        = NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES);
@@ -774,17 +786,34 @@ void iron_internal_call_resize_callback(int width, int height) {
 - (void)windowDidResignMain:(NSNotification *)notification {
 }
 
+- (void)windowDidResignKey:(NSNotification *)notification {
+	iron_internal_background_callback();
+	shift    = false;
+	ctrl     = false;
+	alt      = false;
+	cmd      = false;
+	capslock = false;
+}
+
+- (void)windowDidBecomeKey:(NSNotification *)notification {
+	iron_internal_foreground_callback();
+}
+
 - (void)windowDidBecomeMain:(NSNotification *)notification {
 }
 
 @end
 
 int iron_window_x() {
-	return 0;
+	NSWindow *window = windows[0].handle;
+	return [window frame].origin.x * [window backingScaleFactor];
 }
 
 int iron_window_y() {
-	return 0;
+	NSWindow *window = windows[0].handle;
+	NSRect    frame  = [window frame];
+	float     top    = [[NSScreen mainScreen] frame].size.height - (frame.origin.y + frame.size.height);
+	return top * [window backingScaleFactor];
 }
 
 void iron_window_resize(int width, int height) {}

@@ -144,15 +144,13 @@ project_t *main() {
 		add_define(project, "WITH_EMBED");
 		add_define(project, "arm_embed");
 	}
-	else {
-		add_assets(project, "assets/extra/*", "data/{name}", 0);
-	}
 
 	if (flags->with_physics) {
 		add_define(project, "WITH_PHYSICS");
 	}
 
 	if (flags->with_raytrace) {
+		add_define(project, "WITH_RAYTRACE");
 		add_assets(project, "assets/raytrace/*", "data/{name}", 0);
 		if (graphics == GRAPHICS_DIRECT3D12) {
 			add_assets(project, "shaders/raytrace/*.cso", "data/{name}", 0);
