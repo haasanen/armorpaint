@@ -40,7 +40,7 @@ void util_layer_update_preview() {
 			draw_set_pipeline(NULL);
 			draw_end();
 		}
-		ui_base_hwnds->buffer[TAB_AREA_SIDEBAR0]->redraws = 2;
+		ui_dock_redraw(TAB_AREA_SIDEBAR0);
 	}
 
 	if (g_context->layer != NULL && g_context->layer_preview_dirty && !slot_layer_is_group(g_context->layer)) {
@@ -57,7 +57,7 @@ void util_layer_update_preview() {
 			draw_scaled_image(source, 0, 0, target->width, target->height);
 			draw_set_pipeline(NULL);
 			draw_end();
-			ui_base_hwnds->buffer[TAB_AREA_SIDEBAR0]->redraws = 2;
+			ui_dock_redraw(TAB_AREA_SIDEBAR0);
 		}
 	}
 }
@@ -659,7 +659,7 @@ slot_layer_t *layers_new_path_layer(bool curved) {
 	tab_stages_rename_layer(l->name, name);
 	l->name = name;
 
-	if (g_config->workflow == WORKFLOW_SCULPT) {
+	if (g_config->tools == TOOLS_SCULPT) {
 		_layers_path_sculpt_layer = l;
 		sys_notify_on_next_frame(&layers_new_path_layer_sculpt_init, NULL);
 	}
@@ -689,7 +689,7 @@ void layers_create_fill_layer_on_next_frame(void *_) {
 	}
 	l->object_mask = g_context->layer_filter;
 
-	if (g_config->workflow == WORKFLOW_SCULPT) {
+	if (g_config->tools == TOOLS_SCULPT) {
 		sculpt_init();
 		sculpt_init_sculpt_texture(l);
 	}

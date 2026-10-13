@@ -641,7 +641,7 @@ slot_layer_t *script_layer_new_fill(void) {
 	if (l != NULL) {
 		history_new_layer();
 		l->uv_type = UV_TYPE_UVMAP;
-		if (g_config->workflow == WORKFLOW_SCULPT) {
+		if (g_config->tools == TOOLS_SCULPT) {
 			sculpt_init();
 			sculpt_init_sculpt_texture(l);
 		}
@@ -780,9 +780,7 @@ void script_layer_set_name(slot_layer_t *l, char *name) {
 	char *old_name = l->name;
 	l->name        = string_copy(slot_layer_unique_name(l, name));
 	tab_stages_rename_layer(old_name, l->name);
-	if (ui_base_hwnds != NULL) {
-		ui_base_hwnds->buffer[TAB_AREA_SIDEBAR0]->redraws = 2;
-	}
+	ui_dock_redraw(TAB_AREA_SIDEBAR0);
 }
 
 void script_layer_update(slot_layer_t *l) {
@@ -1088,7 +1086,7 @@ void script_export_mesh(char *path) {
 	gpu_texture_t *current;
 	bool           in_use;
 	script_gpu_begin(&current, &in_use);
-	export_mesh_run(path, NULL, true);
+	export_mesh_run(path, NULL);
 	script_gpu_end(current, in_use);
 }
 
@@ -1122,9 +1120,7 @@ slot_material_t *script_material_create(char *name) {
 	script_gpu_end(current, in_use);
 
 	history_new_material();
-	if (ui_base_hwnds != NULL && ui_base_hwnds->length > 1) {
-		ui_base_hwnds->buffer[1]->redraws = 2;
-	}
+	ui_dock_redraw(1);
 	return m;
 }
 
@@ -1291,6 +1287,17 @@ void script_material_remove_node(ui_node_t *node) {
 		return;
 	}
 	ui_remove_node(node, canvas);
+	if (ui_nodes_hwnd != NULL) {
+		ui_nodes_hwnd->redraws = 2;
+	}
+}
+
+void script_material_add_input(ui_node_t *node, char *type, char *name) {
+	ui_node_canvas_t *canvas = script_material_canvas();
+	if (canvas == NULL || node == NULL || type == NULL || !string_equals(node->type, "SHADER_GPU")) {
+		return;
+	}
+	nodes_mesh_script_add_socket(canvas, node, type, name);
 	if (ui_nodes_hwnd != NULL) {
 		ui_nodes_hwnd->redraws = 2;
 	}
@@ -1464,7 +1471,7 @@ void script_material_update(void) {
 	if (context_is_decal()) {
 		util_render_make_decal_preview();
 	}
-	base_update_workflow_nodes();
+	base_update_tools_nodes();
 
 	script_gpu_end(current, in_use);
 
@@ -1474,9 +1481,7 @@ void script_material_update(void) {
 	if (ui_header_handle != NULL) {
 		ui_header_handle->redraws = 2;
 	}
-	if (ui_base_hwnds != NULL && ui_base_hwnds->length > 1) {
-		ui_base_hwnds->buffer[1]->redraws = 2;
-	}
+	ui_dock_redraw(1);
 	g_context->ddirty  = 2;
 	g_context->rtdirty = 1;
 }
@@ -1506,9 +1511,7 @@ object_t *script_shape_add(char *name) {
 
 	tab_meshes_reset_preview_map();
 	g_context->ddirty = 2;
-	if (ui_base_hwnds != NULL && ui_base_hwnds->length > TAB_AREA_SIDEBAR0) {
-		ui_base_hwnds->buffer[TAB_AREA_SIDEBAR0]->redraws = 2;
-	}
+	ui_dock_redraw(TAB_AREA_SIDEBAR0);
 	return mo->base;
 }
 
@@ -1524,7 +1527,7 @@ object_t *script_object_duplicate(object_t *o) {
 	script_gpu_end(current, in_use);
 
 	g_context->ddirty                                 = 2;
-	ui_base_hwnds->buffer[TAB_AREA_SIDEBAR0]->redraws = 2;
+	ui_dock_redraw(TAB_AREA_SIDEBAR0);
 	return dup->base;
 }
 
@@ -1548,9 +1551,7 @@ void script_object_remove(object_t *o) {
 
 	tab_meshes_reset_preview_map();
 	g_context->ddirty = 2;
-	if (ui_base_hwnds != NULL && ui_base_hwnds->length > TAB_AREA_SIDEBAR0) {
-		ui_base_hwnds->buffer[TAB_AREA_SIDEBAR0]->redraws = 2;
-	}
+	ui_dock_redraw(TAB_AREA_SIDEBAR0);
 }
 
 void script_object_origin_to_geometry(object_t *o) {
@@ -1584,9 +1585,7 @@ void script_object_set_name(object_t *o, char *name) {
 		o->name = new_name;
 	}
 
-	if (ui_base_hwnds != NULL && ui_base_hwnds->length > TAB_AREA_SIDEBAR0) {
-		ui_base_hwnds->buffer[TAB_AREA_SIDEBAR0]->redraws = 2;
-	}
+	ui_dock_redraw(TAB_AREA_SIDEBAR0);
 }
 
 static physics_body_t *script_physics_body(object_t *o) {

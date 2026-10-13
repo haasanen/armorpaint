@@ -167,7 +167,7 @@ void import_mesh_finish_import(void *_) {
 	render_path_raytrace_ready = false;
 	g_context->paint_body      = NULL;
 	tab_meshes_reset_preview_map();
-	base_update_workflow();
+	base_update_tools();
 
 	if (import_mesh_needs_unwrap) {
 		import_mesh_needs_unwrap = false;
@@ -253,8 +253,8 @@ void import_mesh_make_mesh(raw_mesh_t *mesh) {
 
 	g_context->ddirty = 4;
 
-	ui_base_hwnds->buffer[TAB_AREA_SIDEBAR0]->redraws = 2;
-	ui_base_hwnds->buffer[TAB_AREA_SIDEBAR1]->redraws = 2;
+	ui_dock_redraw(TAB_AREA_SIDEBAR0);
+	ui_dock_redraw(TAB_AREA_SIDEBAR1);
 	util_uv_uvmap_cached                              = false;
 	util_uv_trianglemap_cached                        = false;
 	util_uv_dilatemap_cached                          = false;
@@ -310,7 +310,7 @@ void import_mesh_add_mesh(raw_mesh_t *mesh) {
 
 	g_context->ddirty = 4;
 
-	ui_base_hwnds->buffer[TAB_AREA_SIDEBAR0]->redraws = 2;
+	ui_dock_redraw(TAB_AREA_SIDEBAR0);
 	util_uv_uvmap_cached                              = false;
 	util_uv_trianglemap_cached                        = false;
 	util_uv_dilatemap_cached                          = false;

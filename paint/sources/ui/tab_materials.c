@@ -27,7 +27,7 @@ void tab_materials_update_material() {
 	if (decal) {
 		util_render_make_decal_preview();
 	}
-	base_update_workflow_nodes();
+	base_update_tools_nodes();
 }
 
 void tab_materials_draw_slots_duplicate(void *_) {
@@ -79,7 +79,7 @@ void tab_materials_delete_material(slot_material_t *m) {
 	history_delete_material();
 	context_select_material(i == g_project->_->materials->length - 1 ? i - 1 : i + 1);
 	array_splice(g_project->_->materials, i, 1);
-	ui_base_hwnds->buffer[1]->redraws = 2;
+	ui_dock_redraw(1);
 	tab_materials_on_material_removed(m, i);
 }
 
@@ -152,7 +152,7 @@ void tab_materials_delete_unused() {
 		return;
 	}
 	context_set_material(selected != NULL ? selected : g_project->_->materials->buffer[0]);
-	ui_base_hwnds->buffer[1]->redraws = 2;
+	ui_dock_redraw(1);
 }
 
 void tab_materials_draw_slots_menu() {
@@ -215,7 +215,7 @@ void tab_materials_draw_slots_menu() {
 	ui_check(&m->paint_opac, tr("Opacity"), "");
 	channels_changed |= ui_item_changed();
 
-	if (g_config->workflow == WORKFLOW_PBR) {
+	if (g_config->materials == MATERIALS_PBR && g_config->tools != TOOLS_SCULPT) {
 		ui_row2();
 		ui_check(&m->paint_nor, tr("Normal"), "");
 		channels_changed |= ui_item_changed();

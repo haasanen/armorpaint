@@ -44,7 +44,8 @@ static void build_log_append(char *s) {
 
 static void build_thread_func(void *param) {
 #ifdef IRON_WINDOWS
-	FILE *p = _popen(build_cmd, "r");
+	HANDLE process = NULL;
+	FILE  *p       = pad_popen(build_cmd, &process);
 #else
 	FILE *p = popen(build_cmd, "r");
 #endif
@@ -70,7 +71,7 @@ static void build_thread_func(void *param) {
 			build_log_append(line);
 		}
 #ifdef IRON_WINDOWS
-		build_exit_code = _pclose(p);
+		build_exit_code = pad_pclose(p, process);
 #else
 		i32 status      = pclose(p);
 		build_exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
@@ -138,7 +139,7 @@ static void build_clean() {
 	browser_refresh();
 }
 
-// Debug builds compile faster and are the default, clean deletes the build folder first
+// Debug builds compile faster and are the default, release builds embed the data, clean deletes the build folder first
 void build_run(bool run, bool clean) {
 	if (build_running) {
 		return;
@@ -155,7 +156,7 @@ void build_run(bool run, bool clean) {
 	editor_save_all();
 	clean            = clean || build_clean_next;
 	build_clean_next = false;
-	char *debug      = build_config == 0 ? " --debug" : "";
+	char *debug      = build_config == 0 ? " --debug" : " --embed";
 #ifdef IRON_WINDOWS
 	build_exec(string("cd /d \"%s\" && %s\"%s\" %s%s 2>&1", dir, clean ? "(if exist build rmdir /s /q build) && " : "", make, run ? "--run" : "--compile",
 	                  debug),
@@ -203,9 +204,11 @@ void build_update() {
 	}
 }
 
-// Keeps the frames coming while the build prints or an opened file changes on disk
+bool terminal_idle_wake();
+
+// Keeps the frames coming while the build prints, an opened file changes on disk or the terminal opens or closes
 bool build_idle_wake() {
-	return build_finished || build_log_dirty || editor_changed_on_disk();
+	return build_finished || build_log_dirty || editor_changed_on_disk() || terminal_idle_wake();
 }
 
 void build_init() {

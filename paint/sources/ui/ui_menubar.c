@@ -2,13 +2,13 @@
 #include "../global.h"
 
 typedef enum {
-	MENUBAR_CATEGORY_FILE      = 0,
-	MENUBAR_CATEGORY_EDIT      = 1,
-	MENUBAR_CATEGORY_VIEWPORT  = 2,
-	MENUBAR_CATEGORY_MODE      = 3,
-	MENUBAR_CATEGORY_CAMERA    = 4,
-	MENUBAR_CATEGORY_WORKSPACE = 5,
-	MENUBAR_CATEGORY_HELP      = 6,
+	MENUBAR_CATEGORY_FILE     = 0,
+	MENUBAR_CATEGORY_EDIT     = 1,
+	MENUBAR_CATEGORY_VIEWPORT = 2,
+	MENUBAR_CATEGORY_MODE     = 3,
+	MENUBAR_CATEGORY_CAMERA   = 4,
+	MENUBAR_CATEGORY_WINDOW   = 5,
+	MENUBAR_CATEGORY_HELP     = 6,
 } menubar_category_t;
 
 typedef struct update_info {
@@ -22,23 +22,20 @@ i32 ui_menubar_about_line               = 0;
 
 void ui_menubar_init() {
 	ui_menubar_hwnd->layout        = UI_LAYOUT_HORIZONTAL;
+	ui_menubar_split_hwnd->layout  = UI_LAYOUT_HORIZONTAL;
 	ui_menubar_menu_handle->layout = UI_LAYOUT_HORIZONTAL;
 }
 
-i32 ui_menu_panel_x() {
-	if (!base_view3d_show && ui_view2d_show) {
-		return 0;
-	}
+// The menubar floats in the 3D view when the header is hidden, it is placed in front of the tab names otherwise
+static bool ui_menubar_is_floating() {
+	return !g_config->header_pinned && base_view3d_show;
+}
 
-	i32 panel_x = base_x();
-	if (g_config->layout->buffer[LAYOUT_SIZE_HEADER] == 1) {
-		i32 item_w = ui_toolbar_w(false);
-		panel_x    = base_x() - item_w;
+i32 ui_menu_panel_x() {
+	if (ui_menubar_is_floating()) {
+		return base_view_x(0) + 5 * UI_SCALE();
 	}
-	else {
-		panel_x += 5 * UI_SCALE();
-	}
-	return panel_x;
+	return 0;
 }
 
 i32 ui_menu_top_y() {
@@ -62,11 +59,10 @@ i32 ui_menu_panel_y() {
 	}
 #endif
 
-	i32 panel_y = 0;
-	if (g_config->layout->buffer[LAYOUT_SIZE_HEADER] == 0) { // Floating
-		panel_y += 5 * UI_SCALE();
+	if (ui_menubar_is_floating()) {
+		return base_y() + 5 * UI_SCALE();
 	}
-	return panel_y;
+	return 0;
 }
 
 void ui_menubar_render_ui_save_project_on_next_frame(void *_) {
@@ -76,37 +72,6 @@ void ui_menubar_render_ui_save_project_on_next_frame(void *_) {
 
 void ui_menubar_render_ui_save_project(void *_) {
 	sys_notify_on_end_frame(&ui_menubar_render_ui_save_project_on_next_frame, NULL);
-}
-
-void ui_menubar_draw_tab_header() {
-	i32 item_w  = ui_toolbar_w(false);
-	i32 nodesw  = (ui_nodes_show || ui_view2d_show) ? g_config->layout->buffer[LAYOUT_SIZE_NODES_W] : 0;
-	i32 ww      = iron_window_width() - g_config->layout->buffer[LAYOUT_SIZE_SIDEBAR_W] - ui_menubar_w - nodesw;
-	i32 panel_x = (base_x() - item_w) + ui_menubar_w;
-
-	if (!base_view3d_show) {
-		panel_x += 1;
-	}
-
-	if (!base_view3d_show && ui_view2d_show) {
-		panel_x = ui_menubar_w;
-		ww -= 100 * UI_SCALE();
-	}
-
-	if (ui_window(ui_menubar_hwnd, panel_x, 0, ww, ui_header_h, false)) {
-		if (g_config->touch_ui) {
-			ui_fill(0, 0, g_ui->_window_w, g_ui->_window_h + 4, g_theme->SEPARATOR_COL);
-		}
-		else {
-			bool a = ui_tab(&ui_menubar_tab, tr("3D View"), false, -1, false);
-			bool b = ui_tab(&ui_menubar_tab, base_view3d_show ? ">" : "<", false, -2, false);
-			if ((a && !base_view3d_show) || b) {
-				base_view3d_show = !base_view3d_show;
-				ui_menubar_tab   = base_view3d_show ? 0 : -1;
-				base_resize();
-			}
-		}
-	}
 }
 
 void ui_menubar_draw_category_items_about_box() {
@@ -409,17 +374,6 @@ void ui_menubar_draw_category_items() {
 		}
 	}
 	else if (ui_menubar_category == MENUBAR_CATEGORY_VIEWPORT) {
-		if (ui_menu_button(tr("Distract Free"), any_map_get(g_keymap, "view_distract_free"), ICON_NONE)) {
-			ui_base_toggle_distract_free();
-			g_ui->is_hovered = false;
-		}
-
-#if defined(IRON_WINDOWS) || defined(IRON_LINUX) || defined(IRON_MACOS) || defined(IRON_WASM)
-		if (ui_menu_button(tr("Toggle Fullscreen"), "alt+enter", ICON_FULLSCREEN)) {
-			base_toggle_fullscreen();
-		}
-#endif
-
 		g_ui->changed = false;
 
 		world_data_t *p = scene_world;
@@ -453,12 +407,17 @@ void ui_menubar_draw_category_items() {
 
 		ui_check(&g_context->split_view, string_tmp(" %s", tr("Split View")), "");
 		if (ui_item_changed()) {
+			if (g_context->split_view) {
+				// Both views begin with the current camera
+				camera_views[0]   = scene_camera->base->transform->local;
+				camera_views[1]   = camera_views[0];
+				camera_origins[1] = camera_origins[0];
+			}
+			else if (g_context->view_index_last == 1) {
+				// Keep the camera of the active view
+				camera_origins[0] = camera_origins[1];
+			}
 			base_resize();
-		}
-
-		ui_check(&g_context->cull_backfaces, string_tmp(" %s", tr("Cull Backfaces")), "");
-		if (ui_item_changed()) {
-			make_material_parse_mesh_material();
 		}
 
 		ui_check(&g_context->draw_wireframe, string_tmp(" %s", tr("Wireframe")), "");
@@ -544,7 +503,7 @@ void ui_menubar_draw_category_items() {
 		string_array_t *modes        = base_get_viewport_modes();
 		string_array_t *shortcuts    = base_get_viewport_mode_shortcuts();
 
-		if (g_config->workflow == WORKFLOW_BASE) {
+		if (g_config->materials == MATERIALS_BASE_COLOR && g_config->tools != TOOLS_SCULPT) {
 			array_splice(modes, 9, 1);
 			array_splice(modes, 8, 1);
 			array_splice(modes, 7, 1);
@@ -768,49 +727,96 @@ void ui_menubar_draw_category_items() {
 			ui_box_show_custom(&ui_menubar_draw_category_items_about_box, 400, 320, NULL, true, tr("About"));
 		}
 	}
-	else if (ui_menubar_category == MENUBAR_CATEGORY_WORKSPACE) {
-		bool            workspace_changed = false;
-		string_array_t *modes             = any_array_create_from_raw(
-            (void *[]){
-                tr("3D View"),
-                tr("2D View"),
-                tr("Nodes"),
-                tr("Scripts"),
-                tr("Player"),
-            },
-            5);
+	else if (ui_menubar_category == MENUBAR_CATEGORY_WINDOW) {
+#if defined(IRON_WINDOWS) || defined(IRON_LINUX) || defined(IRON_MACOS) || defined(IRON_WASM)
+		if (ui_menu_button(tr("Toggle Fullscreen"), "alt+enter", ICON_FULLSCREEN)) {
+			base_toggle_fullscreen();
+		}
+#endif
 
-		i32 workspace_last = g_config->workspace;
-		for (i32 i = 0; i < modes->length; ++i) {
-			ui_radio((int *)&g_config->workspace, i, modes->buffer[i], "");
-			workspace_changed |= ui_item_changed();
+		if (ui_menu_button(tr("Distract Free"), any_map_get(g_keymap, "view_distract_free"), ICON_NONE)) {
+			ui_base_toggle_distract_free();
+			g_ui->is_hovered = false;
 		}
 
-		if (workspace_changed && g_config->workspace == WORKSPACE_PLAYER) {
-			g_config->workspace = workspace_last;
-			sys_notify_on_next_frame(player_start, NULL);
+		ui_menu_separator();
+		// Reset the layout to the picked workspace
+		if (ui_menu_sub_button(tr("Workspace"))) {
+			ui_menu_sub_begin(5);
+			if (ui_menu_button(tr("3D View"), "", ICON_NONE)) {
+				base_set_workspace(WORKSPACE_PRESET_VIEW_3D);
+			}
+			if (ui_menu_button(tr("2D View"), "", ICON_NONE)) {
+				base_set_workspace(WORKSPACE_PRESET_VIEW_2D);
+			}
+			if (ui_menu_button(tr("Nodes"), "", ICON_NONE)) {
+				base_set_workspace(WORKSPACE_PRESET_NODES);
+			}
+			if (ui_menu_button(tr("Scripts"), "", ICON_NONE)) {
+				base_set_workspace(WORKSPACE_PRESET_SCRIPT);
+			}
+			if (ui_menu_button(tr("Player"), "", ICON_NONE)) {
+				sys_notify_on_next_frame(player_start, NULL);
+			}
+			ui_menu_sub_end();
 		}
-		else if (workspace_changed) {
-			config_save();
-			base_update_workspace();
+		if (ui_menu_sub_button(tr("Tabs"))) {
+			i32 tab_count = 0;
+			for (i32 i = 0; i < TAB_COUNT; ++i) {
+				if (ui_base_get_tab(i) != NULL) {
+					tab_count++;
+				}
+			}
+			ui_menu_sub_begin(tab_count);
+			static bool tab_visible[TAB_COUNT];
+			for (i32 i = 0; i < TAB_COUNT; ++i) {
+				tab_draw_t *tab = ui_base_get_tab(i);
+				if (tab == NULL) {
+					continue;
+				}
+				tab_visible[i] = ui_dock_tab_open(i);
+				ui_check(&tab_visible[i], string_tmp(" %s", tr(tab->name)), "");
+				if (ui_item_changed()) {
+					tab_visible[i] ? ui_base_show_tab(i) : ui_base_close_tab(i);
+					ui_menu_keep_open = true;
+				}
+			}
+			ui_menu_sub_end();
+		}
+		if (ui_menu_sub_button(tr("Materials"))) {
+			ui_menu_sub_begin(2);
+			bool materials_changed = false;
+			ui_radio((int *)&g_config->materials, MATERIALS_PBR, tr("PBR"), "");
+			materials_changed |= ui_item_changed();
+			ui_radio((int *)&g_config->materials, MATERIALS_BASE_COLOR, tr("Base Color"), "");
+			materials_changed |= ui_item_changed();
+			if (materials_changed) {
+				config_save();
+				base_update_tools();
+			}
+			ui_menu_sub_end();
 		}
 
 		ui_menu_separator();
 		ui_menu_align();
-		ui_menu_label(tr("Workflow"), NULL);
-		ui_menu_align();
-		string_array_t *workflow_items = any_array_create_from_raw(
-		    (void *[]){
-		        tr("PBR"),
-		        tr("Base"),
-		        tr("Sculpt"),
-		    },
-		    3);
+		ui_menu_label(tr("Tools"), NULL);
+		bool            tools_changed = false;
+		string_array_t *tools_items   = any_array_create_from_raw(
+            (void *[]){
+                tr("Paint"),
+                tr("Sculpt"),
+                tr("Object"),
+            },
+            3);
 
-		ui_inline_radio((int *)&g_config->workflow, workflow_items, UI_ALIGN_LEFT);
-		if (ui_item_changed()) {
+		for (i32 i = 0; i < tools_items->length; ++i) {
+			ui_radio((int *)&g_config->tools, i, tools_items->buffer[i], "");
+			tools_changed |= ui_item_changed();
+		}
+
+		if (tools_changed) {
 			config_save();
-			base_update_workflow();
+			base_update_tools();
 		}
 	}
 }
@@ -828,7 +834,7 @@ void ui_menubar_show_menu(i32 category) {
 	i32 panel_x = ui_menu_panel_x();
 	i32 panel_y = ui_menu_panel_y();
 	ui_menu_x   = math_floor(g_ui->_x - g_ui->_w) + panel_x;
-	ui_menu_y   = math_floor(ui_MENUBAR_H(g_ui)) + panel_y + 2;
+	ui_menu_y   = math_floor(ui_MENUBAR_H(g_ui)) + panel_y;
 	if (g_config->touch_ui) {
 		i32 menu_w = math_floor(base_default_element_w * UI_SCALE() * 2.0);
 		ui_menu_x -= math_floor((menu_w - g_ui->_w) / 2.0) + math_floor(ui_header_h / 2.0);
@@ -847,7 +853,12 @@ void ui_menubar_render_ui() {
 	i32 panel_x = ui_menu_panel_x();
 	i32 panel_y = ui_menu_panel_y();
 
-	if (ui_window(ui_menubar_menu_handle, panel_x, panel_y, ui_menubar_w, ui_header_h, false)) {
+	// Menubar is drawn in a row of its own when the tab names leave no space for it
+	i32 window_w = ui_dock_is_menubar_row() ? iron_window_width() : ui_menubar_w;
+	if (ui_window(ui_menubar_menu_handle, panel_x, panel_y, window_w, ui_header_h, false)) {
+		if (ui_dock_is_menubar_row()) {
+			ui_fill(0, 0, g_ui->_window_w, g_ui->_window_h + 4, g_theme->SEPARATOR_COL);
+		}
 
 		if (!base_view3d_show) {
 			g_ui->_x += 1;
@@ -893,7 +904,7 @@ void ui_menubar_render_ui() {
 				ui_menubar_show_menu(MENUBAR_CATEGORY_CAMERA);
 			}
 			if (ui_menubar_icon_button(ICON_WORKSPACE)) {
-				ui_menubar_show_menu(MENUBAR_CATEGORY_WORKSPACE);
+				ui_menubar_show_menu(MENUBAR_CATEGORY_WINDOW);
 			}
 			if (ui_menu_show && ui_menubar_category == MENUBAR_CATEGORY_HELP) {
 				ui_fill(0, -6, size, size - 4, g_theme->HIGHLIGHT_COL);
@@ -928,7 +939,7 @@ void ui_menubar_render_ui() {
 			        tr("Viewport"),
 			        tr("Mode"),
 			        tr("Camera"),
-			        tr("Workspace"),
+			        tr("Window"),
 			        tr("Help"),
 			    },
 			    7);
@@ -945,20 +956,16 @@ void ui_menubar_render_ui() {
 			ui_menubar_w               = math_floor(g_ui->_x + 10);
 			ui_toolbar_handle->redraws = 2;
 		}
-		// Crop menubar if sidebar + nodes are overlapping
-		i32 nodesw = (ui_nodes_show || ui_view2d_show) ? g_config->layout->buffer[LAYOUT_SIZE_NODES_W] : 0;
-		if (ui_menubar_w > iron_window_width() - g_config->layout->buffer[LAYOUT_SIZE_SIDEBAR_W] - nodesw) {
-			ui_menubar_w               = iron_window_width() - g_config->layout->buffer[LAYOUT_SIZE_SIDEBAR_W] - nodesw;
+		// Crop menubar to the space it is drawn in
+		i32 max_w = ui_dock_menubar_max_w();
+		if (ui_menubar_w > max_w) {
+			ui_menubar_w               = max_w;
 			ui_toolbar_handle->redraws = 2;
 		}
 
 		ui_end_menu();
 	}
 
-	if (g_config->layout->buffer[LAYOUT_SIZE_HEADER] == 1) {
-		// Non-floating header
-		ui_menubar_draw_tab_header();
-	}
 }
 
 bool ui_menubar_icon_button(i32 i) {

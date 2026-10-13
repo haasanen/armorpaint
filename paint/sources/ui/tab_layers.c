@@ -917,7 +917,7 @@ void tab_layers_draw_layer_context_menu_draw() {
 		bool channels_changed = tab_layers_channel_check(&l->paint_base, tr("Base Color"));
 		channels_changed |= tab_layers_channel_check(&l->paint_opac, tr("Opacity"));
 
-		if (g_config->workflow == WORKFLOW_PBR) {
+		if (g_config->materials == MATERIALS_PBR && g_config->tools != TOOLS_SCULPT) {
 			ui_row2();
 			channels_changed |= tab_layers_channel_check(&l->paint_nor, tr("Normal"));
 			channels_changed |= tab_layers_channel_check(&l->paint_nor_blend, tr("Normal Blend"));
@@ -958,10 +958,10 @@ static bool tab_layers_slot_hidden(slot_layer_t *l) {
 	}
 
 	bool is_sculpt_layer = l->texpaint_sculpt != NULL;
-	if (g_config->workflow == WORKFLOW_SCULPT && !is_sculpt_layer && !slot_layer_is_group(l) && !slot_layer_is_mask(l)) {
+	if (g_config->tools == TOOLS_SCULPT && !is_sculpt_layer && !slot_layer_is_group(l) && !slot_layer_is_mask(l)) {
 		return true;
 	}
-	if (g_config->workflow != WORKFLOW_SCULPT && is_sculpt_layer) {
+	if (g_config->tools != TOOLS_SCULPT && is_sculpt_layer) {
 		return true;
 	}
 
@@ -1047,7 +1047,7 @@ void tab_layers_draw_slots(bool mini) {
 
 void tab_layers_highlight_odd_lines() {
 	i32 step   = g_theme->ELEMENT_H * 2;
-	i32 full_h = g_ui->_window_h - ui_base_hwnds->buffer[0]->scroll_offset;
+	i32 full_h = g_ui->_window_h - g_ui->current_window->scroll_offset;
 	for (i32 i = 0; i < math_floor(full_h / (float)step); ++i) {
 		if (i % 2 == 0) {
 			ui_fill(0, i * step, (g_ui->_w / (float)UI_SCALE() - 2), step, base_darker(g_theme->WINDOW_BG_COL, 0x00040404));
@@ -1077,7 +1077,7 @@ void tab_layers_button_new_sculpt_layer(void *_) {
 
 void tab_layers_button_new_menu() {
 	slot_layer_t *l = g_context->layer;
-	if (g_config->workflow == WORKFLOW_SCULPT) {
+	if (g_config->tools == TOOLS_SCULPT) {
 		if (ui_menu_button(tr("Sculpt Layer"), "", ICON_PAINT)) {
 			sys_notify_on_next_frame(&tab_layers_button_new_sculpt_layer, NULL);
 		}
@@ -1302,7 +1302,7 @@ void tab_layers_draw_full(i32 *htab) {
 					if (tab_layers_slot_hidden(candidate))
 						continue;
 					context_set_layer(candidate);
-					ui_base_hwnds->buffer[TAB_AREA_SIDEBAR0]->redraws = 2;
+					ui_dock_redraw(TAB_AREA_SIDEBAR0);
 					tab_layers_scroll_to_layer(candidate);
 					break;
 				}
@@ -1314,7 +1314,7 @@ void tab_layers_draw_full(i32 *htab) {
 					if (tab_layers_slot_hidden(candidate))
 						continue;
 					context_set_layer(candidate);
-					ui_base_hwnds->buffer[TAB_AREA_SIDEBAR0]->redraws = 2;
+					ui_dock_redraw(TAB_AREA_SIDEBAR0);
 					tab_layers_scroll_to_layer(candidate);
 					break;
 				}
@@ -1324,14 +1324,14 @@ void tab_layers_draw_full(i32 *htab) {
 			bool          has_children = tab_layers_has_children(l);
 			if (has_children && g_ui->is_key_pressed && g_ui->key_code == KEY_CODE_RETURN) {
 				l->show_panel                                     = !l->show_panel;
-				ui_base_hwnds->buffer[TAB_AREA_SIDEBAR0]->redraws = 2;
+				ui_dock_redraw(TAB_AREA_SIDEBAR0);
 			}
 		}
 	}
 }
 
 void tab_layers_draw(i32 *htab) {
-	bool mini = g_config->layout->buffer[LAYOUT_SIZE_SIDEBAR_W] <= ui_sidebar_w_mini;
+	bool mini = g_ui->_window_w <= ui_sidebar_w_mini;
 	mini ? tab_layers_draw_mini(htab) : tab_layers_draw_full(htab);
 }
 

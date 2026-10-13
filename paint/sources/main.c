@@ -103,6 +103,24 @@
 #include "nodes_material/wave_texture_node.c"
 #include "nodes_material/wireframe_node.c"
 
+#include "nodes_mesh/mesh_array_node.c"
+#include "nodes_mesh/mesh_bevel_node.c"
+#include "nodes_mesh/mesh_boolean_node.c"
+#include "nodes_mesh/mesh_decimate_node.c"
+#include "nodes_mesh/mesh_input_node.c"
+#include "nodes_mesh/mesh_join_node.c"
+#include "nodes_mesh/mesh_math_node.c"
+#include "nodes_mesh/mesh_mirror_node.c"
+#include "nodes_mesh/mesh_object_node.c"
+#include "nodes_mesh/mesh_output_node.c"
+#include "nodes_mesh/mesh_script_node.c"
+#include "nodes_mesh/mesh_shape_node.c"
+#include "nodes_mesh/mesh_smooth_node.c"
+#include "nodes_mesh/mesh_subdivide_node.c"
+#include "nodes_mesh/mesh_transform_node.c"
+#include "nodes_mesh/mesh_value_node.c"
+#include "nodes_mesh/mesh_vector_node.c"
+
 #include "nodes_neural/edit_image_node.c"
 #include "nodes_neural/image_to_pbr_node.c"
 #include "nodes_neural/neural_node.c"
@@ -170,14 +188,13 @@
 #include "ui/tab_timeline.c"
 #include "ui/ui_base.c"
 #include "ui/ui_box.c"
+#include "ui/ui_dock.c"
 #include "ui/ui_files.c"
 #include "ui/ui_header.c"
 #include "ui/ui_menu.c"
 #include "ui/ui_menubar.c"
 #include "ui/ui_nodes.c"
 #include "ui/ui_search.c"
-#include "ui/ui_sidebar.c"
-#include "ui/ui_statusbar.c"
 #include "ui/ui_toolbar.c"
 #include "ui/ui_view2d.c"
 
@@ -197,7 +214,6 @@
 #include "util/util_physics.c"
 #include "util/util_raycast.c"
 #include "util/util_render.c"
-#include "util/util_resize.c"
 #include "util/util_select.c"
 #include "util/util_shortcut.c"
 #include "util/util_skin.c"
@@ -264,10 +280,9 @@ void _kickstart() {
 	import_text_importers    = any_map_create();
 	ui_files_path            = ui_files_default_path;
 	base_drop_paths          = any_array_create_from_raw((void *[]){}, 0);
-	ui_base_hwnds            = ui_base_init_hwnds();
-	ui_base_tabs             = ui_base_init_tabs();
-	ui_base_hwnd_tabs        = ui_base_init_hwnd_tabs();
-	ui_toolbar_handle        = ui_window_create();
+	ui_base_init_tabs();
+	ui_toolbar_handle       = ui_window_create();
+	ui_toolbar_split_handle = ui_window_create();
 
 	ui_toolbar_tool_names = any_array_create_from_raw(
 	    (void *[]){
@@ -310,6 +325,7 @@ void _kickstart() {
 	uniforms_ext_ortho_p    = mat4_ortho(-0.5, 0.5, -0.5, 0.5, -0.5, 0.5);
 	import_mesh_importers   = any_map_create();
 	ui_menubar_hwnd         = ui_window_create();
+	ui_menubar_split_hwnd   = ui_window_create();
 	ui_menubar_menu_handle  = ui_window_create();
 	ui_menubar_w            = ui_menubar_default_w;
 	translator_translations = any_map_create();
@@ -332,6 +348,7 @@ void _kickstart() {
 	parser_material_custom_nodes = any_map_create();
 	ui_header_h                  = ui_header_default_h;
 	ui_header_handle             = ui_window_create();
+	ui_header_split_handle       = ui_window_create();
 	g_plugins                    = any_map_create();
 	parser_logic_custom_nodes    = any_map_create();
 	resource_bundled             = any_map_create();
@@ -400,9 +417,6 @@ void _kickstart() {
 	double t_start = iron_time();
 #endif
 
-	if (g_config->layout == NULL) {
-		config_init_layout();
-	}
 	iron_set_app_name(manifest_title);
 
 	data_cached_scene_raws = any_map_create();

@@ -12,7 +12,7 @@ draw_font_t *g_font_mono;
 
 char *pad_project_dir = NULL;
 char *pad_dropped     = NULL;
-#define PAD_UI_SCALE 1.2
+#define PAD_UI_SCALE 1.3
 
 f32   pad_browser_w     = 220; // Panel sizes before scaling
 f32   pad_output_w      = 420;
@@ -40,6 +40,61 @@ char *pad_parent_dir(char *dir) {
 
 void pad_save_config();
 void pad_saved(char *path);
+
+#ifdef IRON_WINDOWS
+#include <fcntl.h>
+#include <io.h>
+#include <sys/stat.h>
+
+FILE *pad_popen(char *cmd, HANDLE *process) {
+	SECURITY_ATTRIBUTES sa = {sizeof(sa), NULL, TRUE};
+	HANDLE              read_pipe;
+	HANDLE              write_pipe;
+	if (!CreatePipe(&read_pipe, &write_pipe, &sa, 0)) {
+		return NULL;
+	}
+	SetHandleInformation(read_pipe, HANDLE_FLAG_INHERIT, 0);
+	HANDLE nul = CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, OPEN_EXISTING, 0, NULL);
+
+	wchar_t comspec[MAX_PATH];
+	GetEnvironmentVariableW(L"ComSpec", comspec, MAX_PATH);
+	i32      wlen = MultiByteToWideChar(CP_UTF8, 0, cmd, -1, NULL, 0);
+	wchar_t *wcmd = malloc(sizeof(wchar_t) * wlen);
+	MultiByteToWideChar(CP_UTF8, 0, cmd, -1, wcmd, wlen);
+	i32      cmdline_len = wlen + MAX_PATH + 16;
+	wchar_t *cmdline     = malloc(sizeof(wchar_t) * cmdline_len);
+	swprintf(cmdline, cmdline_len, L"\"%s\" /s /c \"%s\"", comspec, wcmd);
+
+	STARTUPINFOW        si = {0};
+	PROCESS_INFORMATION pi = {0};
+	si.cb                  = sizeof(si);
+	si.dwFlags             = STARTF_USESTDHANDLES;
+	si.hStdInput           = nul;
+	si.hStdOutput          = write_pipe;
+	si.hStdError           = write_pipe;
+	BOOL success           = CreateProcessW(NULL, cmdline, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi);
+	free(wcmd);
+	free(cmdline);
+	CloseHandle(write_pipe);
+	CloseHandle(nul);
+	if (!success) {
+		CloseHandle(read_pipe);
+		return NULL;
+	}
+	CloseHandle(pi.hThread);
+	*process = pi.hProcess;
+	return _fdopen(_open_osfhandle((intptr_t)read_pipe, _O_RDONLY | _O_TEXT), "r");
+}
+
+i32 pad_pclose(FILE *p, HANDLE process) {
+	fclose(p);
+	WaitForSingleObject(process, INFINITE);
+	DWORD exit_code = 0;
+	GetExitCodeProcess(process, &exit_code);
+	CloseHandle(process);
+	return (i32)exit_code;
+}
+#endif
 
 // Side panels use dimmer text than the editor
 static i32 pad_text_col;
@@ -79,6 +134,7 @@ void pad_fade_end() {
 #include "git.c"
 #include "picker.c"
 #include "search.c"
+#include "terminal.c"
 
 // Shown panels as bits - browser, git, output, search
 static i32 pad_panels() {
@@ -188,7 +244,8 @@ static void pad_update_window_rect() {
 	i32 h = iron_window_height();
 	i32 x = iron_window_x();
 	i32 y = iron_window_y();
-	if (w == 0 || h == 0 || iron_window_get_mode() != IRON_WINDOW_MODE_WINDOW) { // Keep the windowed rect while in fullscreen
+	// Keep the windowed rect while in fullscreen or split with the terminal
+	if (w == 0 || h == 0 || iron_window_get_mode() != IRON_WINDOW_MODE_WINDOW || terminal_show) {
 		return;
 	}
 	if (w != pad_window_w || h != pad_window_h || x != pad_window_x || y != pad_window_y) {
@@ -241,6 +298,7 @@ void pad_drop_files(char *path) {
 // Unsaved changes are written when the app quits
 void pad_shutdown() {
 	editor_save_all();
+	terminal_shutdown();
 }
 
 void pad_foreground() {
@@ -311,6 +369,11 @@ static void pad_update_input() {
 			pad_browser_show = !pad_browser_show;
 			git_show         = false; // One left panel at a time
 		}
+		g_ui->is_key_pressed = false;
+		g_ui->key_code       = 0;
+	}
+	else if (g_ui->is_ctrl_down && g_ui->key_code == KEY_CODE_T) {
+		terminal_toggle();
 		g_ui->is_key_pressed = false;
 		g_ui->key_code       = 0;
 	}
@@ -429,6 +492,7 @@ static void pad_update_resize(i32 w, i32 main_h, i32 *browser_w, i32 *output_w) 
 
 void pad_render(void *_) {
 	build_update();
+	terminal_update();
 	pad_update_input();
 	pad_update_window_rect();
 	pad_update_title();

@@ -63,11 +63,9 @@ typedef struct ui_theme {
 } ui_theme_t;
 
 typedef struct ui_options {
-	draw_font_t   *font;
-	ui_theme_t    *theme;
-	float          scale_factor;
-	gpu_texture_t *color_wheel;
-	gpu_texture_t *black_white_gradient;
+	draw_font_t *font;
+	ui_theme_t  *theme;
+	float        scale_factor;
 } ui_options_t;
 
 typedef struct ui_tab_state {
@@ -292,6 +290,7 @@ typedef struct ui {
 	float           tab_scroll;
 	bool            tab_vertical;
 	bool            tab_align_right;
+	float           tab_offset_x; // Space to keep before the first tab
 	bool            sticky;
 	bool            scissor;
 
@@ -301,6 +300,7 @@ typedef struct ui {
 	gpu_texture_t radio_select_image;
 	gpu_texture_t round_corner_image;
 	gpu_texture_t filled_round_corner_image;
+	gpu_texture_t shadow_image;
 } ui_t;
 
 void  ui_init(ui_t *ui, ui_options_t *ops);
@@ -400,6 +400,7 @@ float UI_SCALE();
 float UI_ELEMENT_W();
 float UI_ELEMENT_H();
 float UI_ELEMENT_OFFSET();
+float UI_TEXT_AREA_LINE_H();
 float UI_ARROW_SIZE();
 float UI_BUTTON_H();
 float UI_CHECK_SIZE();
@@ -420,6 +421,8 @@ extern char  ui_text_to_paste[UI_TEXT_MAX];
 extern char  ui_text_to_copy[UI_TEXT_MAX];
 extern void (*ui_on_border_hover)(ui_window_t *, int);
 extern void (*ui_on_tab_drop)(int *, int, int *, int);
+extern void (*ui_on_tab_context_menu)(int *, int);
+extern bool (*ui_on_tab_dock)(int *);
 extern bool (*ui_picker_button)(void);
 extern const char *ui_theme_keys[];
 extern int         ui_theme_keys_count;
