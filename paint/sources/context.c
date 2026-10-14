@@ -44,6 +44,7 @@ void context_init() {
 	g_context->clone_delta_y                = 0.0;
 	g_context->clone_set_source             = false;
 	g_context->show_compass                 = true;
+	g_context->show_grid                    = false;
 	g_context->last_paint_vec_x             = -1.0;
 	g_context->last_paint_vec_y             = -1.0;
 	g_context->prev_paint_vec_x             = -1.0;
@@ -334,6 +335,11 @@ void context_select_paint_object(mesh_object_t *o) {
 	util_uv_uvmap_cached       = false;
 	util_uv_trianglemap_cached = false;
 	util_uv_dilatemap_cached   = false;
+}
+
+// Cursor tool clicked on empty space, the paint object stays selected in the meshes tab
+bool context_object_deselected() {
+	return g_context->paint_object != NULL && context_deselected_uid == g_context->paint_object->base->uid;
 }
 
 mesh_object_t *context_main_object() {

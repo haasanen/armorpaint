@@ -433,6 +433,7 @@ int   ui_inline_radio(int *value, string_array_t *texts, int align);
 int   ui_color_wheel(uint32_t *value, ui_color_state_t *state, bool alpha, float w, float h, bool color_preview, void (*picker)(void *), void *data);
 char *ui_text_area(char **value, int *line_index, int align, bool editable, char *label, bool word_wrap);
 void  ui_text_area_clear_selection();
+int   ui_text_area_selection_line();
 void  ui_begin_menu();
 void  ui_end_menu();
 bool  ui_menubar_button(char *text);
@@ -449,6 +450,7 @@ extern bool                ui_text_area_line_numbers;
 extern bool                ui_text_area_scroll_past_end;
 extern ui_text_coloring_t *ui_text_area_coloring;
 extern char               *ui_text_area_search;
+extern void (*ui_text_coloring_draw)(char *text, char *rest, float x, float y);
 
 typedef struct ui_canvas_control {
 	float pan_x;
