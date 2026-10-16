@@ -22,6 +22,7 @@ typedef struct mesh_nodes {
 	struct mesh_data      *input;  // Original mesh
 	struct mesh_data      *output; // Mesh assigned to the object, equals input unless the nodes change it
 	u32                    hash;
+	bool                   dirty; // Input replaced, rebuilt once the mouse is up
 } mesh_nodes_t;
 
 typedef struct mesh_geo {
@@ -34,6 +35,12 @@ typedef struct mesh_geo {
 	i32  vertex_capacity; // Allocated sizes, counts can be lowered
 	i32  index_capacity;
 } mesh_geo_t;
+
+typedef struct mesh_geo_image {
+	i32  width;
+	i32  height;
+	f32 *pixels; // Float rgba, rows from v 0
+} mesh_geo_image_t;
 
 typedef struct slot_layer {
 	i32                   id;
@@ -163,6 +170,7 @@ typedef struct config {
 	i32                  dilate_radius;
 	char                *blender;
 	bool                 grid_snap;
+	bool                 auto_run_scripts;
 	bool                 experimental;
 	i32                  neural_res;
 	i32                  console_model;
@@ -261,6 +269,7 @@ typedef struct context {
 	f32                         format_quality;
 	export_destination_t        layers_destination;
 	bool                        export_padding;
+	bool                        bake_create_material;
 	split_type_t                split_by;
 	f64                         select_time;
 	viewport_mode_t             viewport_mode;
