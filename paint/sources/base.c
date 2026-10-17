@@ -1,16 +1,16 @@
 
 #include "global.h"
 
-i32            base_drag_tint  = 0xffffffff;
-i32            base_drag_size  = -1;
-rect_t        *base_drag_rect  = NULL;
-f32            base_drag_start = 0.0;
-f32            base_drop_x     = 0.0;
-f32            base_drop_y     = 0.0;
-i32            base_last_window_width  = 0;
-i32            base_last_window_height = 0;
-bool           base_start_arm_found    = false;
-i32            _base_material_count;
+i32     base_drag_tint          = 0xffffffff;
+i32     base_drag_size          = -1;
+rect_t *base_drag_rect          = NULL;
+f32     base_drag_start         = 0.0;
+f32     base_drop_x             = 0.0;
+f32     base_drop_y             = 0.0;
+i32     base_last_window_width  = 0;
+i32     base_last_window_height = 0;
+bool    base_start_arm_found    = false;
+i32     _base_material_count;
 
 void base_on_shutdown() {
 #if defined(IRON_ANDROID) || defined(IRON_IOS)
@@ -46,6 +46,9 @@ void base_save_window_rect() {
 }
 
 void base_save_and_quit_callback(bool save) {
+	if (viewport_recording) {
+		viewport_capture_video_end();
+	}
 	base_save_window_rect();
 	if (save) {
 		project_save(true);
@@ -370,13 +373,14 @@ void base_update(void *_) {
 		}
 	}
 
-	// Live material when using sys_time() script node
-	if (g_context->tool == TOOL_TYPE_MATERIAL && project_scripts_trusted) {
+	// Live material when using sys_time() script node or a shader node reading constants.time / constants.frame
+	if (g_context->tool == TOOL_TYPE_MATERIAL) {
 		bool              has_script_node = false;
 		ui_node_canvas_t *canvas          = g_context->material->canvas;
 		for (i32 i = 0; i < canvas->nodes->length; ++i) {
 			ui_node_t *n = canvas->nodes->buffer[i];
-			if (string_equals(n->type, "SCRIPT_CPU")) {
+			if ((string_equals(n->type, "SCRIPT_CPU") && project_scripts_trusted) ||
+			    (string_equals(n->type, "SHADER_GPU") && string_index_of(shader_node_text(n), "constants.") != -1)) {
 				has_script_node = true;
 				break;
 			}
@@ -481,6 +485,9 @@ void base_update(void *_) {
 	bool using_menu = ui_menu_show && mouse_y > ui_header_h;
 	base_ui_enabled = !ui_box_show && !using_menu && g_ui->combo_selected_id == 0 && !agent_running;
 
+	if (viewport_recording) {
+		viewport_capture_video_draw();
+	}
 	if (!ui_base_show && !player_in_editor && !base_player_lock && gpu_framebuffer_redirect == NULL) {
 		base_draw_console_lines();
 	}

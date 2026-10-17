@@ -173,6 +173,7 @@ i32                     tab_scripts_line; // Active line of the script text area
 bool                    tab_scripts_minimap_dirty = true;
 extern int              tab_stages_selected;
 extern bool             tab_timeline_playing;
+extern i32              tab_timeline_selected_frame;
 any_map_t              *import_mesh_importers;
 i32                     ui_menubar_default_w = 395;
 ui_window_t            *ui_menubar_hwnd;
@@ -210,6 +211,12 @@ sound_t                  *ui_view2d_sound_playing    = NULL;
 bool                      player_running             = false;
 bool                      player_in_editor           = false;
 bool                      viewport_recording         = false;
+gpu_texture_t            *viewport_video_frame       = NULL;
+i32                       viewport_video_w           = 0;
+i32                       viewport_video_h           = 0;
+f64                       viewport_video_start       = 0.0;
+f32                       viewport_video_vignette    = 0.0;
+f32                       viewport_video_grain       = 0.0;
 bool                      node_shader_dump_to_script = false;
 node_shader_context_t    *parser_material_con;
 node_shader_t            *parser_material_kong;
@@ -317,6 +324,7 @@ mesh_object_t            *nodes_mesh_eval_object;
 bool                      nodes_mesh_eval_unwrap;
 i32                       nodes_mesh_vector_socket; // Output socket of the node evaluated by nodes_mesh_vector
 bool                      nodes_mesh_script_running  = false;
+bool                      nodes_mesh_eval_reads_frame;
 i32                       make_mesh_layer_pass_count = 1;
 
 i32             ui_sidebar_default_w_mini = 56;
