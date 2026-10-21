@@ -7,7 +7,7 @@
 
 char *manifest_title           = "ArmorPaint";
 char *manifest_version         = "1.1alpha";
-char *manifest_version_project = "19";
+char *manifest_version_project = "20";
 char *manifest_version_config  = "1";
 char *manifest_url             = "https://armorpaint.org";
 char *manifest_url_android     = "https://play.google.com/store/apps/details?id=org.armorpaint";
@@ -258,6 +258,8 @@ i32                       util_render_node_preview_size     = 512;
 i32                       util_render_decal_preview_size    = 512;
 i32                       util_render_layer_preview_size    = 200;
 i32                       util_render_font_preview_size     = 200;
+char                     *util_render_default_envmap_name   = "World_default";
+i32                       util_render_default_envmap_w      = 512;
 char                     *tab_browser_path                  = "";
 char                     *tab_browser_search                = "";
 bool                      tab_browser_refresh               = false;

@@ -297,6 +297,8 @@ buffer_t *export_arm_encode_project(char *path) {
 	g_project->camera_world    = mat4_to_f32_array(scene_camera->base->transform->local);
 	g_project->camera_origin   = vec3_to_f32_array(camera_origins[0]);
 	g_project->camera_fov      = scene_camera->data->fov;
+	g_project->camera_near     = scene_camera->data->near_plane;
+	g_project->camera_far      = scene_camera->data->far_plane;
 
 	// g_project.mesh_datas = md; // TODO: fix GC ref
 	if (g_project->mesh_datas == NULL) {
@@ -627,25 +629,48 @@ void export_arm_run_brush(char *path) {
 	free(buffer);
 }
 
+static buffer_t *export_arm_asset_bytes(char *file) {
+	if (g_project->packed_assets != NULL) {
+		for (i32 i = 0; i < g_project->packed_assets->length; ++i) {
+			packed_asset_t *pa = g_project->packed_assets->buffer[i];
+			if (string_equals(pa->name, file)) {
+				return u8_array_create_from_array(pa->bytes);
+			}
+		}
+	}
+	return iron_load_blob(file);
+}
+
 void export_arm_pack_assets(project_t *raw, asset_t_array_t *assets) {
 	if (raw->packed_assets == NULL) {
 		raw->packed_assets = any_array_create_from_raw((void *[]){}, 0);
 	}
 	gpu_texture_t_array_t *temp_images = any_array_create_from_raw((void *[]){}, 0);
 	for (i32 i = 0; i < assets->length; ++i) {
-		if (!project_packed_asset_exists(raw->packed_assets, assets->buffer[i]->file)) {
+		char *file = assets->buffer[i]->file;
+		if (project_packed_asset_exists(raw->packed_assets, file)) {
+			continue;
+		}
+		char     *ext = substring(file, string_last_index_of(file, ".") + 1, string_length(file));
+		buffer_t *bytes;
+		if (any_map_get(import_texture_importers, ext) != NULL) { // Script importer format, store as png
 			gpu_texture_t *image = project_get_image(assets->buffer[i]);
 			gpu_texture_t *temp  = gpu_create_render_target(image->width, image->height, GPU_TEXTURE_FORMAT_RGBA32);
 			draw_begin(temp, false, 0);
 			draw_image(image, 0, 0);
 			draw_end();
 			any_array_push(temp_images, temp);
-			packed_asset_t *pa = ALLOC_INIT(packed_asset_t, {.name  = assets->buffer[i]->file,
-			                                                 .bytes = ends_with(assets->buffer[i]->file, ".jpg")
-			                                                              ? iron_encode_jpg(gpu_get_texture_pixels(temp), temp->width, temp->height, 0, 80)
-			                                                              : iron_encode_png(gpu_get_texture_pixels(temp), temp->width, temp->height, 0)});
-			any_array_push(raw->packed_assets, pa);
+			bytes = iron_encode_png(gpu_get_texture_pixels(temp), temp->width, temp->height, 0);
 		}
+		else {
+			bytes = export_arm_asset_bytes(file);
+			if (bytes == NULL) {
+				console_error(string("%s %s", strings_could_not_locate_texture(), file));
+				continue;
+			}
+		}
+		packed_asset_t *pa = ALLOC_INIT(packed_asset_t, {.name = file, .bytes = bytes});
+		any_array_push(raw->packed_assets, pa);
 	}
 
 	for (i32 i = 0; i < temp_images->length; ++i) {
