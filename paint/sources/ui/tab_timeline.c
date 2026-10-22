@@ -713,6 +713,10 @@ static void tab_timeline_reskin(f64 nested_frame) {
 		project_reskin_finish();
 }
 
+i32 tab_timeline_get_frame_rate() {
+	return tab_timeline_frame_rate;
+}
+
 void tab_timeline_clip_play(mesh_object_t *mesh, i32 start, i32 end) {
 	tab_timeline_instance_t *instance = tab_timeline_instance_of(mesh);
 	instance->clip_range              = true;
@@ -1639,6 +1643,7 @@ void tab_timeline_update() {
 		tab_timeline_capture_end();
 	}
 	if (!tab_timeline_playing) {
+		project_reskin_pending();
 		if (tab_timeline_mesh_refresh_pending) {
 			tab_timeline_mesh_refresh_pending = false;
 			util_mesh_transform_changed();

@@ -751,7 +751,7 @@ scene_t *startup_get_scene(void) {
 	}
 
 	// shader_datas
-	scene->shader_datas = any_array_create(18);
+	scene->shader_datas = any_array_create(17);
 	{
 		shader_data_t *sd = (shader_data_t *)calloc(1, sizeof(shader_data_t));
 		sd->name          = "armdefault";
@@ -922,56 +922,6 @@ scene_t *startup_get_scene(void) {
 	}
 	{
 		shader_data_t *sd = (shader_data_t *)calloc(1, sizeof(shader_data_t));
-		sd->name          = "Material2";
-		sd->contexts      = any_array_create(1);
-		{
-			shader_context_t *sc             = (shader_context_t *)calloc(1, sizeof(shader_context_t));
-			sc->name                         = "mesh";
-			sc->depth_write                  = true;
-			sc->compare_mode                 = "less";
-			sc->cull_mode                    = "clockwise";
-			sc->vertex_shader                = "mesh_posnor.vert";
-			sc->fragment_shader              = "mesh_posnor.frag";
-			sc->shader_from_source           = false;
-			sc->color_attachments            = string_array_create(2);
-			sc->color_attachments->buffer[0] = "RGBA64";
-			sc->color_attachments->buffer[1] = "RGBA64";
-			sc->depth_attachment             = "D32";
-			sc->vertex_elements              = (vertex_element_t_array_t *)any_array_create(2);
-			{
-				vertex_element_t *ve           = (vertex_element_t *)calloc(1, sizeof(vertex_element_t));
-				ve->name                       = "pos";
-				ve->data                       = "short4norm";
-				sc->vertex_elements->buffer[0] = ve;
-			}
-			{
-				vertex_element_t *ve           = (vertex_element_t *)calloc(1, sizeof(vertex_element_t));
-				ve->name                       = "nor";
-				ve->data                       = "short2norm";
-				sc->vertex_elements->buffer[1] = ve;
-			}
-			sc->constants = (shader_const_t_array_t *)any_array_create(2);
-			{
-				shader_const_t *c        = (shader_const_t *)calloc(1, sizeof(shader_const_t));
-				c->name                  = "WVP";
-				c->type                  = "float4x4";
-				c->link                  = "_world_view_proj_matrix";
-				sc->constants->buffer[0] = c;
-			}
-			{
-				shader_const_t *c        = (shader_const_t *)calloc(1, sizeof(shader_const_t));
-				c->name                  = "N";
-				c->type                  = "float3x3";
-				c->link                  = "_normal_matrix";
-				sc->constants->buffer[1] = c;
-			}
-			sc->texture_units       = (tex_unit_t_array_t *)any_array_create(0);
-			sd->contexts->buffer[0] = sc;
-		}
-		scene->shader_datas->buffer[3] = sd;
-	}
-	{
-		shader_data_t *sd = (shader_data_t *)calloc(1, sizeof(shader_data_t));
 		sd->name          = "compositor_pass";
 		sd->contexts      = any_array_create(1);
 		{
@@ -1049,7 +999,7 @@ scene_t *startup_get_scene(void) {
 			}
 			sd->contexts->buffer[0] = sc;
 		}
-		scene->shader_datas->buffer[4] = sd;
+		scene->shader_datas->buffer[3] = sd;
 	}
 	{
 		shader_data_t *sd = (shader_data_t *)calloc(1, sizeof(shader_data_t));
@@ -1094,7 +1044,7 @@ scene_t *startup_get_scene(void) {
 			}
 			sd->contexts->buffer[0] = sc;
 		}
-		scene->shader_datas->buffer[5] = sd;
+		scene->shader_datas->buffer[4] = sd;
 	}
 	{
 		shader_data_t *sd = (shader_data_t *)calloc(1, sizeof(shader_data_t));
@@ -1233,7 +1183,7 @@ scene_t *startup_get_scene(void) {
 			}
 			sd->contexts->buffer[4] = sc;
 		}
-		scene->shader_datas->buffer[6] = sd;
+		scene->shader_datas->buffer[5] = sd;
 	}
 	{
 		shader_data_t *sd = (shader_data_t *)calloc(1, sizeof(shader_data_t));
@@ -1307,7 +1257,7 @@ scene_t *startup_get_scene(void) {
 			}
 			sd->contexts->buffer[1] = sc;
 		}
-		scene->shader_datas->buffer[7] = sd;
+		scene->shader_datas->buffer[6] = sd;
 	}
 	{
 		shader_data_t *sd = (shader_data_t *)calloc(1, sizeof(shader_data_t));
@@ -1345,7 +1295,7 @@ scene_t *startup_get_scene(void) {
 			}
 			sd->contexts->buffer[0] = sc;
 		}
-		scene->shader_datas->buffer[8] = sd;
+		scene->shader_datas->buffer[7] = sd;
 	}
 	{
 		shader_data_t *sd = (shader_data_t *)calloc(1, sizeof(shader_data_t));
@@ -1425,7 +1375,7 @@ scene_t *startup_get_scene(void) {
 			}
 			sd->contexts->buffer[0] = sc;
 		}
-		scene->shader_datas->buffer[9] = sd;
+		scene->shader_datas->buffer[8] = sd;
 	}
 	{
 		shader_data_t *sd = (shader_data_t *)calloc(1, sizeof(shader_data_t));
@@ -1509,7 +1459,7 @@ scene_t *startup_get_scene(void) {
 			}
 			sd->contexts->buffer[1] = sc;
 		}
-		scene->shader_datas->buffer[10] = sd;
+		scene->shader_datas->buffer[9] = sd;
 	}
 	{
 		shader_data_t *sd = (shader_data_t *)calloc(1, sizeof(shader_data_t));
@@ -1615,7 +1565,7 @@ scene_t *startup_get_scene(void) {
 			}
 			sd->contexts->buffer[1] = sc;
 		}
-		scene->shader_datas->buffer[11] = sd;
+		scene->shader_datas->buffer[10] = sd;
 	}
 	{
 		shader_data_t *sd = (shader_data_t *)calloc(1, sizeof(shader_data_t));
@@ -1738,7 +1688,7 @@ scene_t *startup_get_scene(void) {
 			}
 			sd->contexts->buffer[2] = sc;
 		}
-		scene->shader_datas->buffer[12] = sd;
+		scene->shader_datas->buffer[11] = sd;
 	}
 	{
 		shader_data_t *sd = (shader_data_t *)calloc(1, sizeof(shader_data_t));
@@ -1883,7 +1833,7 @@ scene_t *startup_get_scene(void) {
 			}
 			sd->contexts->buffer[2] = sc;
 		}
-		scene->shader_datas->buffer[13] = sd;
+		scene->shader_datas->buffer[12] = sd;
 	}
 	{
 		shader_data_t *sd = (shader_data_t *)calloc(1, sizeof(shader_data_t));
@@ -1916,7 +1866,7 @@ scene_t *startup_get_scene(void) {
 			}
 			sd->contexts->buffer[0] = sc;
 		}
-		scene->shader_datas->buffer[14] = sd;
+		scene->shader_datas->buffer[13] = sd;
 	}
 	{
 		shader_data_t *sd = (shader_data_t *)calloc(1, sizeof(shader_data_t));
@@ -2091,7 +2041,7 @@ scene_t *startup_get_scene(void) {
 			}
 			sd->contexts->buffer[0] = sc;
 		}
-		scene->shader_datas->buffer[15] = sd;
+		scene->shader_datas->buffer[14] = sd;
 	}
 	{
 		shader_data_t *sd = (shader_data_t *)calloc(1, sizeof(shader_data_t));
@@ -2146,7 +2096,7 @@ scene_t *startup_get_scene(void) {
 			}
 			sd->contexts->buffer[0] = sc;
 		}
-		scene->shader_datas->buffer[16] = sd;
+		scene->shader_datas->buffer[15] = sd;
 	}
 	{
 		shader_data_t *sd = (shader_data_t *)calloc(1, sizeof(shader_data_t));
@@ -2186,16 +2136,16 @@ scene_t *startup_get_scene(void) {
 			}
 			sd->contexts->buffer[0] = sc;
 		}
-		scene->shader_datas->buffer[17] = sd;
+		scene->shader_datas->buffer[16] = sd;
 	}
 
 	// objects
 	scene->objects = any_array_create(5);
 	{
-		obj_t *obj0    = (obj_t *)calloc(1, sizeof(obj_t));
-		obj0->name     = ".Compass";
-		obj0->type     = "mesh_object";
-		obj0->data_ref = ".Compass";
+		object_desc_t *obj0 = (object_desc_t *)calloc(1, sizeof(object_desc_t));
+		obj0->name          = ".Compass";
+		obj0->type          = "mesh_object";
+		obj0->data_ref      = ".Compass";
 		obj0->transform =
 		    f32_array_create_from_raw((float[]){1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f}, 16);
 		obj0->dimensions          = f32_array_create_from_raw((float[]){2.0f, 2.0f, 2.0f}, 3);
@@ -2205,23 +2155,23 @@ scene_t *startup_get_scene(void) {
 		scene->objects->buffer[0] = obj0;
 	}
 	{
-		obj_t *obj1    = (obj_t *)calloc(1, sizeof(obj_t));
-		obj1->name     = ".Gizmo";
-		obj1->type     = "mesh_object";
-		obj1->data_ref = ".Gizmo";
+		object_desc_t *obj1 = (object_desc_t *)calloc(1, sizeof(object_desc_t));
+		obj1->name          = ".Gizmo";
+		obj1->type          = "mesh_object";
+		obj1->data_ref      = ".Gizmo";
 		obj1->transform =
 		    f32_array_create_from_raw((float[]){1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f}, 16);
-		obj1->dimensions      = f32_array_create_from_raw((float[]){2.1500000953674316f, 2.1500000953674316f, 2.1500000953674316f}, 3);
-		obj1->visible         = false;
-		obj1->spawn           = true;
-		obj1->material_ref    = ".Gizmo";
-		obj_t_array_t *obj1ch = (obj_t_array_t *)any_array_create(9);
-		obj1->children        = obj1ch;
+		obj1->dimensions              = f32_array_create_from_raw((float[]){2.1500000953674316f, 2.1500000953674316f, 2.1500000953674316f}, 3);
+		obj1->visible                 = false;
+		obj1->spawn                   = true;
+		obj1->material_ref            = ".Gizmo";
+		object_desc_t_array_t *obj1ch = (object_desc_t_array_t *)any_array_create(9);
+		obj1->children                = obj1ch;
 		{
-			obj_t *obj2    = (obj_t *)calloc(1, sizeof(obj_t));
-			obj2->name     = ".RotateX";
-			obj2->type     = "mesh_object";
-			obj2->data_ref = ".RotateX";
+			object_desc_t *obj2 = (object_desc_t *)calloc(1, sizeof(object_desc_t));
+			obj2->name          = ".RotateX";
+			obj2->type          = "mesh_object";
+			obj2->data_ref      = ".RotateX";
 			obj2->transform =
 			    f32_array_create_from_raw((float[]){1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.75f, 0.75f, 1.0f}, 16);
 			obj2->dimensions   = f32_array_create_from_raw((float[]){0.20000000298023224f, 1.0f, 1.0f}, 3);
@@ -2231,10 +2181,10 @@ scene_t *startup_get_scene(void) {
 			obj1ch->buffer[0]  = obj2;
 		}
 		{
-			obj_t *obj3    = (obj_t *)calloc(1, sizeof(obj_t));
-			obj3->name     = ".RotateY";
-			obj3->type     = "mesh_object";
-			obj3->data_ref = ".RotateY";
+			object_desc_t *obj3 = (object_desc_t *)calloc(1, sizeof(object_desc_t));
+			obj3->name          = ".RotateY";
+			obj3->type          = "mesh_object";
+			obj3->data_ref      = ".RotateY";
 			obj3->transform =
 			    f32_array_create_from_raw((float[]){1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.75f, 0.0f, 0.75f, 1.0f}, 16);
 			obj3->dimensions   = f32_array_create_from_raw((float[]){1.0f, 0.20000000298023224f, 1.0f}, 3);
@@ -2244,10 +2194,10 @@ scene_t *startup_get_scene(void) {
 			obj1ch->buffer[1]  = obj3;
 		}
 		{
-			obj_t *obj4    = (obj_t *)calloc(1, sizeof(obj_t));
-			obj4->name     = ".RotateZ";
-			obj4->type     = "mesh_object";
-			obj4->data_ref = ".RotateZ";
+			object_desc_t *obj4 = (object_desc_t *)calloc(1, sizeof(object_desc_t));
+			obj4->name          = ".RotateZ";
+			obj4->type          = "mesh_object";
+			obj4->data_ref      = ".RotateZ";
 			obj4->transform =
 			    f32_array_create_from_raw((float[]){1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.75f, 0.75f, 0.0f, 1.0f}, 16);
 			obj4->dimensions   = f32_array_create_from_raw((float[]){1.0f, 1.0f, 0.20000000298023224f}, 3);
@@ -2257,10 +2207,10 @@ scene_t *startup_get_scene(void) {
 			obj1ch->buffer[2]  = obj4;
 		}
 		{
-			obj_t *obj5        = (obj_t *)calloc(1, sizeof(obj_t));
-			obj5->name         = ".ScaleX";
-			obj5->type         = "mesh_object";
-			obj5->data_ref     = ".ScaleX";
+			object_desc_t *obj5 = (object_desc_t *)calloc(1, sizeof(object_desc_t));
+			obj5->name          = ".ScaleX";
+			obj5->type          = "mesh_object";
+			obj5->data_ref      = ".ScaleX";
 			obj5->transform    = f32_array_create_from_raw((float[]){1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.949999988079071f,
 			                                                         0.0f, 0.0f, 1.0f},
 			                                               16);
@@ -2271,38 +2221,38 @@ scene_t *startup_get_scene(void) {
 			obj1ch->buffer[3]  = obj5;
 		}
 		{
-			obj_t *obj6        = (obj_t *)calloc(1, sizeof(obj_t));
-			obj6->name         = ".ScaleY";
-			obj6->type         = "mesh_object";
-			obj6->data_ref     = ".ScaleY";
-			obj6->transform    = f32_array_create_from_raw((float[]){1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f,
-			                                                         0.949999988079071f, 0.0f, 1.0f},
-			                                               16);
-			obj6->dimensions   = f32_array_create_from_raw((float[]){0.20000000298023224f, 0.36000001430511475f, 0.20000000298023224f}, 3);
-			obj6->visible      = false;
-			obj6->spawn        = true;
-			obj6->material_ref = "armdefault";
-			obj1ch->buffer[4]  = obj6;
+			object_desc_t *obj6 = (object_desc_t *)calloc(1, sizeof(object_desc_t));
+			obj6->name          = ".ScaleY";
+			obj6->type          = "mesh_object";
+			obj6->data_ref      = ".ScaleY";
+			obj6->transform     = f32_array_create_from_raw((float[]){1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f,
+			                                                          0.949999988079071f, 0.0f, 1.0f},
+			                                                16);
+			obj6->dimensions    = f32_array_create_from_raw((float[]){0.20000000298023224f, 0.36000001430511475f, 0.20000000298023224f}, 3);
+			obj6->visible       = false;
+			obj6->spawn         = true;
+			obj6->material_ref  = "armdefault";
+			obj1ch->buffer[4]   = obj6;
 		}
 		{
-			obj_t *obj7        = (obj_t *)calloc(1, sizeof(obj_t));
-			obj7->name         = ".ScaleZ";
-			obj7->type         = "mesh_object";
-			obj7->data_ref     = ".ScaleZ";
-			obj7->transform    = f32_array_create_from_raw((float[]){1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f,
-			                                                         0.949999988079071f, 1.0f},
-			                                               16);
-			obj7->dimensions   = f32_array_create_from_raw((float[]){0.20000000298023224f, 0.20000000298023224f, 0.36000001430511475f}, 3);
-			obj7->visible      = false;
-			obj7->spawn        = true;
-			obj7->material_ref = "armdefault";
-			obj1ch->buffer[5]  = obj7;
+			object_desc_t *obj7 = (object_desc_t *)calloc(1, sizeof(object_desc_t));
+			obj7->name          = ".ScaleZ";
+			obj7->type          = "mesh_object";
+			obj7->data_ref      = ".ScaleZ";
+			obj7->transform     = f32_array_create_from_raw((float[]){1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f,
+			                                                          0.949999988079071f, 1.0f},
+			                                                16);
+			obj7->dimensions    = f32_array_create_from_raw((float[]){0.20000000298023224f, 0.20000000298023224f, 0.36000001430511475f}, 3);
+			obj7->visible       = false;
+			obj7->spawn         = true;
+			obj7->material_ref  = "armdefault";
+			obj1ch->buffer[5]   = obj7;
 		}
 		{
-			obj_t *obj8      = (obj_t *)calloc(1, sizeof(obj_t));
-			obj8->name       = ".TranslateX";
-			obj8->type       = "mesh_object";
-			obj8->data_ref   = ".TranslateX";
+			object_desc_t *obj8 = (object_desc_t *)calloc(1, sizeof(object_desc_t));
+			obj8->name          = ".TranslateX";
+			obj8->type          = "mesh_object";
+			obj8->data_ref      = ".TranslateX";
 			obj8->transform  = f32_array_create_from_raw((float[]){1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 1.7000000476837158f,
 			                                                       0.0f, 0.0f, 1.0f},
 			                                             16);
@@ -2313,52 +2263,52 @@ scene_t *startup_get_scene(void) {
 			obj1ch->buffer[6]  = obj8;
 		}
 		{
-			obj_t *obj9        = (obj_t *)calloc(1, sizeof(obj_t));
-			obj9->name         = ".TranslateY";
-			obj9->type         = "mesh_object";
-			obj9->data_ref     = ".TranslateY";
-			obj9->transform    = f32_array_create_from_raw((float[]){1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f,
-			                                                         1.7000000476837158f, 0.0f, 1.0f},
-			                                               16);
-			obj9->dimensions   = f32_array_create_from_raw((float[]){0.20000000298023224f, 0.7200000286102295f, 0.20000000298023224f}, 3);
-			obj9->visible      = false;
-			obj9->spawn        = true;
-			obj9->material_ref = "armdefault";
-			obj1ch->buffer[7]  = obj9;
+			object_desc_t *obj9 = (object_desc_t *)calloc(1, sizeof(object_desc_t));
+			obj9->name          = ".TranslateY";
+			obj9->type          = "mesh_object";
+			obj9->data_ref      = ".TranslateY";
+			obj9->transform     = f32_array_create_from_raw((float[]){1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f,
+			                                                          1.7000000476837158f, 0.0f, 1.0f},
+			                                                16);
+			obj9->dimensions    = f32_array_create_from_raw((float[]){0.20000000298023224f, 0.7200000286102295f, 0.20000000298023224f}, 3);
+			obj9->visible       = false;
+			obj9->spawn         = true;
+			obj9->material_ref  = "armdefault";
+			obj1ch->buffer[7]   = obj9;
 		}
 		{
-			obj_t *obj10        = (obj_t *)calloc(1, sizeof(obj_t));
-			obj10->name         = ".TranslateZ";
-			obj10->type         = "mesh_object";
-			obj10->data_ref     = ".TranslateZ";
-			obj10->transform    = f32_array_create_from_raw((float[]){1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f,
-			                                                          1.7000000476837158f, 1.0f},
-			                                                16);
-			obj10->dimensions   = f32_array_create_from_raw((float[]){0.20000000298023224f, 0.20000000298023224f, 0.7200000286102295f}, 3);
-			obj10->visible      = false;
-			obj10->spawn        = true;
-			obj10->material_ref = "armdefault";
-			obj1ch->buffer[8]   = obj10;
+			object_desc_t *obj10 = (object_desc_t *)calloc(1, sizeof(object_desc_t));
+			obj10->name          = ".TranslateZ";
+			obj10->type          = "mesh_object";
+			obj10->data_ref      = ".TranslateZ";
+			obj10->transform     = f32_array_create_from_raw((float[]){1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f,
+			                                                           1.7000000476837158f, 1.0f},
+			                                                 16);
+			obj10->dimensions    = f32_array_create_from_raw((float[]){0.20000000298023224f, 0.20000000298023224f, 0.7200000286102295f}, 3);
+			obj10->visible       = false;
+			obj10->spawn         = true;
+			obj10->material_ref  = "armdefault";
+			obj1ch->buffer[8]    = obj10;
 		}
 		scene->objects->buffer[1] = obj1;
 	}
 	{
-		obj_t *obj11     = (obj_t *)calloc(1, sizeof(obj_t));
-		obj11->name      = "Camera";
-		obj11->type      = "camera_object";
-		obj11->data_ref  = "Camera";
-		obj11->transform = f32_array_create_from_raw((float[]){0.8660249710083008f, 0.5f, -0.0f, 0.0f, 0.0f, -0.0f, 1.0f, 0.0f, 0.5f, -0.8660249710083008f,
-		                                                       -0.0f, 0.0f, 1.649999976158142f, -2.8628199100494385f, -0.0f, 1.0f},
-		                                             16);
-		obj11->visible   = true;
-		obj11->spawn     = true;
+		object_desc_t *obj11 = (object_desc_t *)calloc(1, sizeof(object_desc_t));
+		obj11->name          = "Camera";
+		obj11->type          = "camera_object";
+		obj11->data_ref      = "Camera";
+		obj11->transform     = f32_array_create_from_raw((float[]){0.8660249710083008f, 0.5f, -0.0f, 0.0f, 0.0f, -0.0f, 1.0f, 0.0f, 0.5f, -0.8660249710083008f,
+		                                                           -0.0f, 0.0f, 1.649999976158142f, -2.8628199100494385f, -0.0f, 1.0f},
+		                                                 16);
+		obj11->visible       = true;
+		obj11->spawn         = true;
 		scene->objects->buffer[2] = obj11;
 	}
 	{
-		obj_t *obj12    = (obj_t *)calloc(1, sizeof(obj_t));
-		obj12->name     = ".Plane";
-		obj12->type     = "mesh_object";
-		obj12->data_ref = ".Plane";
+		object_desc_t *obj12 = (object_desc_t *)calloc(1, sizeof(object_desc_t));
+		obj12->name          = ".Plane";
+		obj12->type          = "mesh_object";
+		obj12->data_ref      = ".Plane";
 		obj12->transform =
 		    f32_array_create_from_raw((float[]){1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f}, 16);
 		obj12->dimensions         = f32_array_create_from_raw((float[]){1.0f, 0.0f, 1.0f}, 3);
@@ -2368,10 +2318,10 @@ scene_t *startup_get_scene(void) {
 		scene->objects->buffer[3] = obj12;
 	}
 	{
-		obj_t *obj13    = (obj_t *)calloc(1, sizeof(obj_t));
-		obj13->name     = ".Sphere";
-		obj13->type     = "mesh_object";
-		obj13->data_ref = ".Sphere";
+		object_desc_t *obj13 = (object_desc_t *)calloc(1, sizeof(object_desc_t));
+		obj13->name          = ".Sphere";
+		obj13->type          = "mesh_object";
+		obj13->data_ref      = ".Sphere";
 		obj13->transform =
 		    f32_array_create_from_raw((float[]){1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f}, 16);
 		obj13->dimensions         = f32_array_create_from_raw((float[]){1.0f, 1.0f, 1.0f}, 3);

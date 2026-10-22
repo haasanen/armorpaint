@@ -15,9 +15,6 @@ void viewport_scale_to_bounds(f32 bounds) {
 	mesh_data_t *md            = g_context->merged_object == NULL ? po->data : g_context->merged_object->data;
 	vec4_t       aabb          = mesh_data_calculate_aabb(md);
 	f32          r             = math_sqrt(aabb.x * aabb.x + aabb.y * aabb.y + aabb.z * aabb.z);
-	po->base->transform->dim.x = aabb.x;
-	po->base->transform->dim.y = aabb.y;
-	po->base->transform->dim.z = aabb.z;
 	po->base->transform->scale = (vec4_t){bounds / (float)r, bounds / (float)r, bounds / (float)r, 1.0};
 	po->base->transform->loc   = (vec4_t){0, 0, 0, 1.0};
 	transform_build_matrix(po->base->transform);
@@ -26,7 +23,7 @@ void viewport_scale_to_bounds(f32 bounds) {
 void viewport_reset() {
 	camera_object_t *cam = scene_camera;
 	for (i32 i = 0; i < _scene_raw->objects->length; ++i) {
-		obj_t *o = _scene_raw->objects->buffer[i];
+		object_desc_t *o = _scene_raw->objects->buffer[i];
 		if (string_equals(o->type, "camera_object")) {
 			cam->base->transform->local = mat4_from_f32_array(o->transform, 0);
 			transform_decompose(cam->base->transform);

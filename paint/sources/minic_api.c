@@ -294,6 +294,11 @@ static float minic_arg_float(minic_val_t *a, int c, int i) {
 	X(V4, raycast_aabb_mouse, "s:vec4_t(p:object_t object)", raycast_aabb_mouse((object_t *)AP(0)))                                   \
 	X(I, point_in_aabb, "b(p:object_t object,s:vec4_t point)", point_in_aabb((object_t *)AP(0), V4(1)))                               \
 	X(VOID, script_tween_to, "v(p:object_t o,s:vec4_t to,f speed)", script_tween_to((object_t *)AP(0), V4(1), AF(2)))                 \
+	X(V4, script_physics_get_pos, "s:vec4_t(p:object_t o)", script_physics_get_pos((object_t *)AP(0)))                                \
+	X(V4, script_physics_get_velocity, "s:vec4_t(p:object_t o)", script_physics_get_velocity((object_t *)AP(0)))                      \
+	X(VOID, script_physics_set_rotation, "v(p:object_t o,s:quat_t rot)", script_physics_set_rotation((object_t *)AP(0), QT(1)))       \
+	X(V4, script_pick_terrain, "s:vec4_t()", script_pick_terrain())                                                                   \
+	X(V4, camera_object_look_world, "s:vec4_t(p:camera_object_t raw)", camera_object_look_world(AP(0)))                               \
 	X(VOID, line_draw_render, "v(s:mat4_t matrix)", line_draw_render(M4(0)))                                                          \
 	X(VOID, line_draw_bounds, "v(s:mat4_t mat,s:vec4_t dim)", line_draw_bounds(M4(0), V4(1)))                                         \
 	X(VOID, shape_draw_sphere, "v(s:mat4_t mat)", shape_draw_sphere(M4(0)))                                                           \
@@ -697,7 +702,7 @@ void minic_register_builtins() {
 	MINIC_END();
 
 	// engine.h
-	MINIC_STRUCT(obj_t);
+	MINIC_STRUCT(object_desc_t);
 	MINIC_S(name);
 	MINIC_S(type);
 	MINIC_S(data_ref);
@@ -707,8 +712,7 @@ void minic_register_builtins() {
 	MINIC_I(spawn);
 	MINIC_P(anim);
 	MINIC_S(material_ref);
-	MINIC_O(children, obj_t_array_t);
-	MINIC_P(_);
+	MINIC_O(children, object_desc_t_array_t);
 	MINIC_END();
 
 	MINIC_STRUCT(vertex_array_t);
@@ -748,7 +752,7 @@ void minic_register_builtins() {
 	MINIC_F(far_plane);
 	MINIC_F(fov);
 	MINIC_F(aspect);
-	MINIC_I(frustum_culling);
+	MINIC_B(frustum_culling);
 	MINIC_O(ortho, f32_array_t);
 	MINIC_END();
 
@@ -828,13 +832,11 @@ void minic_register_builtins() {
 	MINIC_STRUCT(object_t);
 	MINIC_I(uid);
 	MINIC_F(urandom);
-	MINIC_O(raw, obj_t);
 	MINIC_S(name);
 	MINIC_O(transform, transform_t);
 	MINIC_P(parent);
 	MINIC_O(children, any_array_t);
 	MINIC_B(visible);
-	MINIC_B(culled);
 	MINIC_B(is_empty);
 	MINIC_P(ext);
 	MINIC_S(ext_type);
@@ -845,9 +847,8 @@ void minic_register_builtins() {
 	MINIC_O(data, mesh_data_t);
 	MINIC_O(material, shader_data_t);
 	MINIC_F(camera_dist);
-	MINIC_I(frustum_culling);
-	MINIC_S(skip_context);
-	MINIC_S(force_context);
+	MINIC_B(frustum_culling);
+	MINIC_B(culled);
 	MINIC_END();
 
 	MINIC_STRUCT(transform_t);
@@ -857,7 +858,21 @@ void minic_register_builtins() {
 	MINIC_F(scale_world);
 	MINIC_I(dirty);
 	MINIC_O(object, object_t);
+	MINIC_E(dim, vec4_t);
+	MINIC_E(extent, vec4_t);
+	MINIC_B(has_dim);
+	MINIC_B(measured);
 	MINIC_F(radius);
+	MINIC_END();
+
+	MINIC_STRUCT(physics_body_t);
+	MINIC_I(shape);
+	MINIC_F(mass);
+	MINIC_F(dimx);
+	MINIC_F(dimy);
+	MINIC_F(dimz);
+	MINIC_E(offset, vec4_t);
+	MINIC_O(obj, object_t);
 	MINIC_END();
 
 	MINIC_STRUCT(camera_object_t);
@@ -916,6 +931,7 @@ void minic_register_builtins() {
 	MINIC_F(camera_fov);
 	MINIC_F(camera_near);
 	MINIC_F(camera_far);
+	MINIC_B(camera_frustum_culling);
 	MINIC_O(camera_world, f32_array_t);
 	MINIC_O(camera_origin, f32_array_t);
 	MINIC_P(swatches);
@@ -939,6 +955,8 @@ void minic_register_builtins() {
 	minic_register_global("mouse_x", &mouse_x, MINIC_T_FLOAT);
 	minic_register_global("mouse_y", &mouse_y, MINIC_T_FLOAT);
 	minic_register_global("mouse_wheel_delta", &mouse_wheel_delta, MINIC_T_FLOAT);
+	minic_register_global("mouse_movement_x", &mouse_movement_x, MINIC_T_FLOAT);
+	minic_register_global("mouse_movement_y", &mouse_movement_y, MINIC_T_FLOAT);
 
 	// minic_api_list.h
 	for (int i = 0; i < (int)(sizeof(minic_api_entries) / sizeof(minic_api_entries[0])); ++i) {

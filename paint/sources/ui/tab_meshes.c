@@ -1085,11 +1085,21 @@ void tab_meshes_draw_context_menu() {
 	ui_row4();
 	ui_text("Dim", UI_ALIGN_LEFT, 0x00000000);
 
-	bool changed = tab_meshes_float_input(&t->dim.x, &t->dim.x, "X");
-	changed |= tab_meshes_float_input(&t->dim.y, &t->dim.y, "Y");
-	changed |= tab_meshes_float_input(&t->dim.z, &t->dim.z, "Z");
+	// Edits the scale that gives the typed size
+	vec4_t dim  = transform_dim(t);
+	vec4_t prev = dim;
+	ui_push_id((ui_id_t)"dim");
+	bool changed = tab_meshes_float_input(&dim.x, &t->scale.x, "X");
+	changed |= tab_meshes_float_input(&dim.y, &t->scale.y, "Y");
+	changed |= tab_meshes_float_input(&dim.z, &t->scale.z, "Z");
+	ui_pop_id();
 
 	if (changed) {
+		vec4_t prev_scale = t->scale;
+		t->scale.x        = prev.x != 0.0 ? t->scale.x * dim.x / prev.x : t->scale.x;
+		t->scale.y        = prev.y != 0.0 ? t->scale.y * dim.y / prev.y : t->scale.y;
+		t->scale.z        = prev.z != 0.0 ? t->scale.z * dim.z / prev.z : t->scale.z;
+		history_object_transform(o, t->loc, t->rot, prev_scale);
 		transform_build_matrix(t);
 		transform_compute_dim(t);
 		util_mesh_transform_changed();
@@ -1219,14 +1229,14 @@ void tab_meshes_draw_edit() {
 mesh_object_t *tab_meshes_append_shape(char *mesh_name) {
 	mesh_data_t *md = util_shape_make_data(mesh_name);
 	if (md != NULL) {
-		return tab_meshes_append_data(md, NULL);
+		return tab_meshes_append_data(md);
 	}
 	buffer_t *b         = iron_load_blob(string("%smeshes/%s.arm", data_path(), mesh_name));
 	scene_t  *scene_raw = armpack_decode(b);
-	return tab_meshes_append_data(mesh_data_create(scene_raw->mesh_datas->buffer[0]), scene_raw);
+	return tab_meshes_append_data(mesh_data_create(scene_raw->mesh_datas->buffer[0]));
 }
 
-mesh_object_t *tab_meshes_append_data(mesh_data_t *md, void *gc) {
+mesh_object_t *tab_meshes_append_data(mesh_data_t *md) {
 	mesh_object_t *mo = scene_add_mesh_object(md, g_project->_->paint_objects->buffer[0]->material, NULL);
 
 	// The shape stays at the scene root
@@ -1235,9 +1245,7 @@ mesh_object_t *tab_meshes_append_data(mesh_data_t *md, void *gc) {
 	// Ensure unique name
 	mo->base->name = string_copy(_import_mesh_unique_name(md->name));
 
-	obj_t *o      = ALLOC_INIT(obj_t, {0});
-	o->_          = ALLOC_INIT(obj_runtime_t, {._gc = gc});
-	mo->base->raw = o;
+	mo->base->transform->has_dim = true; // Keeps the default 2 unit bounds, never measured
 	any_array_push(g_project->_->paint_objects, mo);
 	tab_stages_add_object(mo->base->name);
 	g_context->paint_object = mo;
