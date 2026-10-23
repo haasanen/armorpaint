@@ -61,11 +61,10 @@ void ui_base_init() {
 
 	string_array_t *resources = any_array_create_from_raw(
 	    (void *[]){
-	        "cursor.k",
 	        "icons.k",
 	        "icons05x.k",
 	    },
-	    3);
+	    2);
 	resource_load(resources);
 
 	f32           scale = g_config->window_scale;
@@ -175,6 +174,7 @@ void ui_base_update(void *_) {
 		util_shortcut_global();
 		util_shortcut_brush();
 		util_shortcut_viewport();
+		ui_toolbar_update();
 		util_particle_update();
 	}
 

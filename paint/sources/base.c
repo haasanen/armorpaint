@@ -58,6 +58,11 @@ void base_save_and_quit_callback(bool save) {
 	}
 }
 
+void base_material_dropped_export(char *path) {
+	export_arm_run_material(path);
+	tab_browser_refresh = true;
+}
+
 void base_material_dropped() {
 	// Material drag and dropped onto viewport or layers tab
 	if (context_in_3d_view()) {
@@ -78,6 +83,15 @@ void base_material_dropped() {
 	}
 	else if (context_in_meshes()) {
 		tab_meshes_accept_material_drop(base_drag_material);
+	}
+	else if (context_in_browser() && iron_is_directory(tab_browser_path)) {
+		// Export material into the browser directory
+		char *name = base_drag_material->canvas->name;
+		char *path = string("%s%s%s.arm", tab_browser_path, PATH_SEP, name);
+		for (i32 i = 1; iron_file_exists(path); ++i) {
+			path = string("%s%s%s.%03d.arm", tab_browser_path, PATH_SEP, name, i);
+		}
+		sys_notify_on_next_frame(&base_material_dropped_export, path);
 	}
 	base_drag_material = NULL;
 }
@@ -210,6 +224,20 @@ static void base_draw_console_lines() {
 	}
 	draw_set_color(0xffffffff);
 	draw_end();
+}
+
+void base_draw_dashed_rect(f32 x, f32 y, f32 w, f32 h) {
+	f32 dash = 4.0 * UI_SCALE();
+	for (f32 t = 0.0; t < w; t += dash * 2.0) {
+		f32 l = math_min(dash, w - t);
+		draw_filled_rect(x + t, y, l, 1.0);
+		draw_filled_rect(x + t, y + h, l, 1.0);
+	}
+	for (f32 t = 0.0; t < h; t += dash * 2.0) {
+		f32 l = math_min(dash, h - t);
+		draw_filled_rect(x, y + t, 1.0, l);
+		draw_filled_rect(x + w, y + t, 1.0, l);
+	}
 }
 
 void base_update(void *_) {
@@ -468,14 +496,14 @@ void base_update(void *_) {
 	ui_dock_render_drag();
 
 	// Select tool rectangle mask
-	if (g_context->select_active || g_context->select_dragging) {
+	if ((g_context->select_active || g_context->select_dragging) && !g_context->select_2d) {
 		f32 x1 = g_context->select_x1 * sys_w() + sys_x();
 		f32 y1 = g_context->select_y1 * sys_h() + sys_y();
 		f32 x2 = g_context->select_x2 * sys_w() + sys_x();
 		f32 y2 = g_context->select_y2 * sys_h() + sys_y();
 		draw_begin(NULL, false, 0);
 		draw_set_color(g_context->select_dragging ? 0xffffffff : 0xaaffffff);
-		draw_rect(x1, y1, x2 - x1, y2 - y1, 1.0);
+		base_draw_dashed_rect(math_min(x1, x2), math_min(y1, y2), math_abs(x2 - x1), math_abs(y2 - y1));
 		draw_set_color(0xffffffff);
 		draw_end();
 	}
@@ -569,7 +597,7 @@ void base_init() {
 
 	args_run();
 
-	if (g_config->tools != TOOLS_PAINT || g_config->materials != MATERIALS_PBR) {
+	if (g_config->tools != TOOLS_PAINT || g_config->materials != MATERIALS_NODES) {
 		base_update_tools();
 	}
 
@@ -706,7 +734,7 @@ i32 base_h() {
 
 // The cursor hovering the 2D view is mapped the same way as while painting in it,
 // the stroke begins at the last hovered position
-static bool base_paint_in_2d() {
+bool base_paint_in_2d() {
 	// The brush inputs are read before the 2D view updates paint2d for the frame,
 	// keep the view the stroke was started in
 	static bool started_in_2d = false;
@@ -720,40 +748,50 @@ static bool base_paint_in_2d() {
 	return in_2d;
 }
 
-// 2D view paints in 3D viewport coordinates, placed right next to the viewport
+// Paint coordinates are relative to the view being painted, the 2D view is a 3D view of the layer plane
+i32 base_paint_view_x() {
+	return base_paint_in_2d() ? ui_view2d_wx : base_x();
+}
+
+i32 base_paint_view_y() {
+	return base_paint_in_2d() ? ui_view2d_wy + ui_view2d_top() : base_y();
+}
+
+i32 base_paint_view_w() {
+	return base_paint_in_2d() ? ui_view2d_ww : base_w();
+}
+
+i32 base_paint_view_h() {
+	return base_paint_in_2d() ? ui_view2d_wh - ui_view2d_top() : base_h();
+}
+
 f32 base_paint_x(f32 screen_x) {
-	if (base_paint_in_2d()) {
-		return 1.0 + (screen_x - ui_view2d_wx) / (f32)base_w();
-	}
-	return (screen_x - base_x()) / (f32)base_w();
+	return (screen_x - base_paint_view_x()) / (f32)base_paint_view_w();
 }
 
 f32 base_paint_y(f32 screen_y) {
-	if (base_paint_in_2d()) {
-		return (screen_y - ui_view2d_wy - ui_view2d_top()) / (f32)(ui_view2d_wh - ui_view2d_top());
-	}
-	return (screen_y - base_y()) / (f32)base_h();
+	return (screen_y - base_paint_view_y()) / (f32)base_paint_view_h();
 }
 
 f32 base_paint_screen_x(f32 paint_x) {
-	if (base_paint_in_2d()) {
-		return ui_view2d_wx + (paint_x - 1.0) * base_w();
-	}
-	return base_x() + paint_x * base_w();
+	return base_paint_view_x() + paint_x * base_paint_view_w();
 }
 
 f32 base_paint_screen_y(f32 paint_y) {
-	if (base_paint_in_2d()) {
-		return ui_view2d_wy + ui_view2d_top() + paint_y * (ui_view2d_wh - ui_view2d_top());
-	}
-	return base_y() + paint_y * base_h();
+	return base_paint_view_y() + paint_y * base_paint_view_h();
 }
 
 i32 base_x() {
+	if (g_context->paint2d_view) {
+		return ui_view2d_wx;
+	}
 	return base_view_x(base_view_index());
 }
 
 i32 base_y() {
+	if (g_context->paint2d_view) {
+		return ui_view2d_wy + ui_view2d_top();
+	}
 	return base_appy;
 }
 
@@ -998,7 +1036,7 @@ void base_update_tools_create_sculpt_layer(void *_) {
 
 void base_update_tools_nodes() {
 	// Update Material Output nodes
-	bool pbr = g_config->materials == MATERIALS_PBR && g_config->tools != TOOLS_SCULPT;
+	bool pbr = g_config->tools != TOOLS_SCULPT;
 	for (i32 i = 0; i < g_project->_->materials->length; ++i) {
 		ui_node_array_t *nodes = g_project->_->materials->buffer[i]->canvas->nodes;
 		for (i32 j = 0; j < nodes->length; ++j) {
