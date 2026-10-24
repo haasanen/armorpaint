@@ -15,6 +15,37 @@ f32       _layers_occlusion;
 f32       _layers_roughness;
 f32       _layers_metallic;
 
+static void util_layer_draw_preview(slot_layer_t *l, gpu_texture_t *target) {
+	paint_tex_t type = tab_layers_preview_tex;
+	if (slot_layer_is_mask(l) || (type == PAINT_TEX_NORMAL && l->texpaint_nor == NULL) ||
+	    (type >= PAINT_TEX_OCCLUSION && l->texpaint_pack == NULL)) {
+		type = PAINT_TEX_BASE;
+	}
+
+	if (type == PAINT_TEX_BASE) {
+		draw_begin(target, true, 0x00000000);
+		// draw_set_pipeline(l.is_mask() ? pipes_copy8 : pipes_copy);
+		draw_set_pipeline(pipes_copy); // texpaint_preview is always RGBA32 for now
+		draw_scaled_image(l->texpaint, 0, 0, target->width, target->height);
+		draw_set_pipeline(NULL);
+		draw_end();
+		return;
+	}
+
+	gpu_texture_t *source = type == PAINT_TEX_OPACITY ? l->texpaint : type == PAINT_TEX_NORMAL ? l->texpaint_nor : l->texpaint_pack;
+	i32            channel = type == PAINT_TEX_OCCLUSION   ? 1
+	                         : type == PAINT_TEX_ROUGHNESS ? 2
+	                         : type == PAINT_TEX_METALLIC  ? 3
+	                         : type == PAINT_TEX_NORMAL    ? 5
+	                                                       : 4; // Opacity, height
+	draw_begin(target, true, 0xff000000); // view2d pipe keeps dst alpha
+	draw_set_pipeline(ui_view2d_pipe);
+	gpu_set_int(ui_view2d_channel_loc, channel);
+	draw_scaled_image(source, 0, 0, target->width, target->height);
+	draw_set_pipeline(NULL);
+	draw_end();
+}
+
 void util_layer_update_preview() {
 	if (g_context->layers_preview_dirty) {
 		g_context->layers_preview_dirty = false;
@@ -32,13 +63,7 @@ void util_layer_update_preview() {
 				continue;
 			}
 
-			gpu_texture_t *source = l->texpaint;
-			draw_begin(target, true, 0x00000000);
-			// draw_set_pipeline(l.is_mask() ? pipes_copy8 : pipes_copy);
-			draw_set_pipeline(pipes_copy); // texpaint_preview is always RGBA32 for now
-			draw_scaled_image(source, 0, 0, target->width, target->height);
-			draw_set_pipeline(NULL);
-			draw_end();
+			util_layer_draw_preview(l, target);
 		}
 		ui_dock_redraw(TAB_AREA_SIDEBAR0);
 	}
@@ -50,13 +75,7 @@ void util_layer_update_preview() {
 		slot_layer_t  *l      = g_context->layer;
 		gpu_texture_t *target = l->texpaint_preview;
 		if (target != NULL) {
-			gpu_texture_t *source = l->texpaint;
-			draw_begin(target, true, 0x00000000);
-			// draw_set_pipeline(raw.layer.is_mask() ? pipes_copy8 : pipes_copy);
-			draw_set_pipeline(pipes_copy); // texpaint_preview is always RGBA32 for now
-			draw_scaled_image(source, 0, 0, target->width, target->height);
-			draw_set_pipeline(NULL);
-			draw_end();
+			util_layer_draw_preview(l, target);
 			ui_dock_redraw(TAB_AREA_SIDEBAR0);
 		}
 	}
@@ -79,9 +98,20 @@ void layers_resize() {
 		slot_layer_t *l = g_project->_->layers->buffer[i];
 		slot_layer_resize_and_set_bits(l);
 	}
-	for (i32 i = 0; i < history_undo_layers->length; ++i) {
-		slot_layer_t *l = history_undo_layers->buffer[i];
-		slot_layer_resize_and_set_bits(l);
+	layers_resize_targets();
+
+	render_path_raytrace_ready = false; // Rebuild baketex
+	g_context->ddirty          = 2;
+	layers_crop                = false;
+}
+
+// Undo layers, live layer and paint targets that follow the texture resolution
+void layers_resize_targets() {
+	if (history_undo_layers != NULL) {
+		for (i32 i = 0; i < history_undo_layers->length; ++i) {
+			slot_layer_t *l = history_undo_layers->buffer[i];
+			slot_layer_resize_and_set_bits(l);
+		}
 	}
 
 	any_map_t *rts = render_path_render_targets;
@@ -131,10 +161,6 @@ void layers_resize() {
 		sculpt_base->height = config_get_texture_res_y();
 		sculpt_base->_image = gpu_create_render_target(config_get_texture_res_x(), config_get_texture_res_y(), GPU_TEXTURE_FORMAT_RGBA128);
 	}
-
-	render_path_raytrace_ready = false; // Rebuild baketex
-	g_context->ddirty          = 2;
-	layers_crop                = false;
 }
 
 void layers_set_bits() {

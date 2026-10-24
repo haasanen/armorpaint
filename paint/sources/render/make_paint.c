@@ -214,6 +214,11 @@ node_shader_context_t *make_paint_run_context(material_t *data, char *context_id
 
 	node_shader_write_vert(kong, "output.pos = float4(tpos, 0.0, 1.0);");
 
+	if (g_context->tool == TOOL_TYPE_BLUR) {
+		node_shader_add_out(kong, "float2 blur_uv");
+		node_shader_write_vert(kong, string_tmp("output.blur_uv = %s;", tuv));
+	}
+
 	if (g_context->select_active && g_context->select_2d) {
 		node_shader_add_out(kong, "float2 select_uv");
 		node_shader_write_vert(kong, string_tmp("output.select_uv = %s;", tuv));
@@ -340,7 +345,16 @@ node_shader_context_t *make_paint_run_context(material_t *data, char *context_id
 		node_shader_add_texture(kong, tex_pack_src, tex_pack_link);
 
 		if (g_context->tool == TOOL_TYPE_CLONE) {
-			make_clone_run(kong);
+			if (g_context->clone_layers == CLONE_LAYERS_VISIBLE) {
+				// Visible layers flattened at stroke start
+				node_shader_add_texture(kong, "texpaint_ref", "_texpaint_ref");
+				node_shader_add_texture(kong, "texpaint_nor_ref", "_texpaint_nor_ref");
+				node_shader_add_texture(kong, "texpaint_pack_ref", "_texpaint_pack_ref");
+				make_clone_run(kong, "texpaint_ref", "texpaint_nor_ref", "texpaint_pack_ref");
+			}
+			else {
+				make_clone_run(kong, tex_src, tex_nor_src, tex_pack_src);
+			}
 		}
 		else { // Blur, Smudge
 			make_blur_run(kong);

@@ -974,6 +974,7 @@ void tab_meshes_draw_context_menu() {
 		util_mesh_merge(NULL);
 		util_uv_uvmap_cached       = false;
 		util_uv_trianglemap_cached = false;
+		util_uv_seammap_cached     = false;
 		util_uv_dilatemap_cached   = false;
 		g_context->ddirty          = 2;
 		return;
@@ -1706,9 +1707,9 @@ void tab_meshes_draw(i32 *htab) {
 		ui_begin_sticky();
 		f32_array_t *row = f32_array_create_from_raw_tmp(
 		    (f32[]){
-		        -70,
-		        -70,
-		        -70,
+		        -64,
+		        -64,
+		        -64,
 		    },
 		    3);
 		ui_row(row);
