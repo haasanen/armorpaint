@@ -327,11 +327,26 @@ static gpu_texture_t *import_arm_texture_from_lz4(buffer_t *b, i32 res, u32 size
 	return texture;
 }
 
+// Image nodes are saved by asset name, the saved index only picks between assets sharing a name
+static i32 import_arm_image_asset_index(ui_node_button_t *but) {
+	char *name  = u8_array_to_string(but->data);
+	i32   saved = but->default_value->buffer[0];
+	if (saved >= 0 && saved < g_project->_->assets->length && string_equals(g_project->_->assets->buffer[saved]->name, name)) {
+		return saved;
+	}
+	for (i32 i = 0; i < g_project->_->assets->length; ++i) {
+		if (string_equals(g_project->_->assets->buffer[i]->name, name)) {
+			return i;
+		}
+	}
+	return 9999; // Texture deleted, use pink now
+}
+
 void import_arm_init_nodes(ui_node_t_array_t *nodes) {
 	for (i32 i = 0; i < nodes->length; ++i) {
 		ui_node_t *node = nodes->buffer[i];
 		if (string_equals(node->type, "TEX_IMAGE")) {
-			node->buttons->buffer[0]->default_value = f32_array_create_x(base_get_asset_index(u8_array_to_string(node->buttons->buffer[0]->data)));
+			node->buttons->buffer[0]->default_value = f32_array_create_x(import_arm_image_asset_index(node->buttons->buffer[0]));
 			node->buttons->buffer[0]->data          = u8_array_create_from_string("");
 		}
 	}
@@ -389,7 +404,7 @@ void import_arm_unpack_sound(project_t *project, char *abs, char *file, bool cop
 		return;
 	}
 	import_arm_progress_unpacked += ((buffer_t *)pa->bytes)->length;
-	sound_t *sound = iron_load_sound_from_bytes(pa->bytes, ends_with(pa->name, ".wav") ? ".wav" : ".ogg");
+	sound_t *sound = iron_load_sound_from_bytes(pa->bytes, path_has_ext(pa->name, "wav") ? ".wav" : ".ogg");
 	if (data_cached_sounds == NULL) {
 		data_cached_sounds = any_map_create();
 	}
@@ -416,11 +431,10 @@ typedef struct import_arm_decode {
 #define IMPORT_ARM_DECODE_THREADS 16
 
 static bool import_arm_is_decodable(char *abs) {
-	char *ext = substring(abs, string_last_index_of(abs, ".") + 1, string_length(abs));
+	char *ext = path_ext(abs);
 	if (any_map_get(import_texture_importers, ext) != NULL) {
 		return false;
 	}
-	ext = to_lower_case(ext);
 	return string_equals(ext, "jpg") || string_equals(ext, "jpeg") || string_equals(ext, "png") || string_equals(ext, "hdr");
 }
 
@@ -882,7 +896,7 @@ void import_arm_run_project(char *path) {
 		if (any_map_get(data_cached_textures, abs) == NULL && !iron_file_exists(abs)) {
 			import_arm_make_pink(abs);
 		}
-		bool hdr_as_envmap = ends_with(abs, ".hdr") && g_project->envmap != NULL && string_equals(g_project->envmap, path_normalize(abs));
+		bool hdr_as_envmap = path_has_ext(abs, "hdr") && g_project->envmap != NULL && string_equals(g_project->envmap, path_normalize(abs));
 		import_texture_run(abs, hdr_as_envmap);
 		progress_loaded++;
 		import_arm_progress(0.1 + 0.7 * (0.8 * import_arm_progress_unpacked / (f32)progress_bytes + 0.2 * progress_loaded / (f32)progress_assets));
@@ -1129,8 +1143,9 @@ void import_arm_run_project(char *path) {
 	g_project->_->material_groups = any_array_create_from_raw((void *[]){}, 0);
 	if (g_project->material_groups != NULL) {
 		for (i32 i = 0; i < g_project->material_groups->length; ++i) {
-			ui_node_canvas_t *g  = g_project->material_groups->buffer[i];
-			node_group_t     *ng = ALLOC_INIT(node_group_t, {.canvas = g, .nodes = ui_nodes_create()});
+			ui_node_canvas_t *g = g_project->material_groups->buffer[i];
+			import_arm_init_nodes(g->nodes);
+			node_group_t *ng = ALLOC_INIT(node_group_t, {.canvas = g, .nodes = ui_nodes_create()});
 			any_array_push(g_project->_->material_groups, ng);
 		}
 	}
