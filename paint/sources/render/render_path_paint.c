@@ -894,6 +894,12 @@ void render_path_paint_draw_cursor_decal(f32 mx, f32 my, f32 radius, f32 opacity
 void render_path_paint_commands_cursor() {
 	bool        decal_mask = context_is_decal_mask();
 	tool_type_t tool       = g_context->tool;
+	if (tool >= TOOL_TYPE_PLUGIN) {
+		if (base_ui_enabled && !base_is_dragging && !base_paint_in_2d()) {
+			render_path_paint_draw_cursor(g_context->paint_vec.x, 1.0 - g_context->paint_vec.y, g_context->brush_radius / 3.4, 1.0, 1.0, 1.0);
+		}
+		return;
+	}
 	if (tool != TOOL_TYPE_BRUSH && tool != TOOL_TYPE_ERASER && tool != TOOL_TYPE_CLONE && tool != TOOL_TYPE_BLUR && tool != TOOL_TYPE_PARTICLE &&
 	    !context_is_decal() && !decal_mask) {
 		return;
@@ -937,6 +943,10 @@ void render_path_paint_commands_cursor() {
 }
 
 bool render_path_paint_paint_enabled() {
+	if (g_context->tool >= TOOL_TYPE_PLUGIN) {
+		return false; // Plugin tools handle the strokes themselves
+	}
+
 	if (g_context->tool == TOOL_TYPE_BAKE) {
 		return true;
 	}
@@ -1019,11 +1029,42 @@ void render_path_paint_end() {
 	g_context->pdirty--;
 }
 
+static void render_path_paint_commands_low_poly() {
+	mesh_object_t *merged = g_context->merged_object;
+	if (merged == NULL || !merged->base->visible) {
+		render_path_paint_commands_paint(true);
+		return;
+	}
+	mesh_object_t *high_poly = g_project->_->paint_objects->buffer[g_context->bake_high_poly];
+	i32            last      = -1;
+	for (i32 i = 0; i < g_project->_->paint_objects->length; ++i) {
+		mesh_object_t *p = g_project->_->paint_objects->buffer[i];
+		if (p != high_poly && p->base->visible) {
+			last = i;
+		}
+	}
+	if (last < 0) { // The high poly is the only mesh, it bakes onto itself
+		render_path_paint_commands_paint(true);
+		return;
+	}
+	mesh_object_t *_paint_object = g_context->paint_object;
+	merged->base->visible        = false;
+	for (i32 i = 0; i <= last; ++i) {
+		mesh_object_t *p = g_project->_->paint_objects->buffer[i];
+		if (p != high_poly && p->base->visible) {
+			context_select_paint_object(p);
+			render_path_paint_commands_paint(i == last); // Dilate once all objects are drawn
+		}
+	}
+	merged->base->visible = true;
+	context_select_paint_object(_paint_object);
+}
+
 void _render_path_paint_final() {
 	g_context->bake_type = _render_path_paint_bake_type;
 	make_material_parse_paint_material(false);
 	g_context->pdirty = 1;
-	render_path_paint_commands_paint(true);
+	render_path_paint_commands_low_poly();
 	g_context->pdirty        = 0;
 	render_path_paint_baking = false;
 }
@@ -1036,7 +1077,7 @@ void _render_path_paint_deriv() {
 	g_context->bake_type = BAKE_TYPE_HEIGHT;
 	make_material_parse_paint_material(false);
 	g_context->pdirty = 1;
-	render_path_paint_commands_paint(true);
+	render_path_paint_commands_low_poly();
 	g_context->pdirty = 0;
 	if (render_path_paint_push_undo_last) {
 		history_paint();
@@ -1085,10 +1126,18 @@ void render_path_paint_draw() {
 					mesh_object_t *_paint_object = g_context->paint_object;
 					mesh_object_t *high_poly     = g_project->_->paint_objects->buffer[g_context->bake_high_poly];
 					bool           _visible      = high_poly->base->visible;
+					mesh_object_t *merged        = g_context->merged_object;
+					bool           _merged       = merged != NULL && merged->base->visible;
 					high_poly->base->visible     = true;
+					if (_merged) {
+						merged->base->visible = false; // Draw the high poly alone
+					}
 					context_select_paint_object(high_poly);
 					render_path_paint_commands_paint(true);
 					high_poly->base->visible = _visible;
+					if (_merged) {
+						merged->base->visible = true;
+					}
 					if (render_path_paint_push_undo_last) {
 						history_paint();
 					}
@@ -1124,9 +1173,14 @@ void render_path_paint_draw() {
 					g_context->merged_object->base->visible = _visible;
 			}
 			else if (render_path_paint_is_rt_bake()) {
+				bool dispatched = false;
 				if (!render_path_raytrace_bake_lightmap_busy()) {
-					render_path_raytrace_bake_commands(make_material_parse_paint_material);
+					dispatched = render_path_raytrace_bake_commands(make_material_parse_paint_material);
 					render_path_paint_dilate(true, false);
+				}
+				// The raytrace setup frame and frames waiting on a lightmap bake trace no rays, keep their sample
+				if (!dispatched && g_context->pdirty > 0) {
+					g_context->pdirty++;
 				}
 			}
 			else {

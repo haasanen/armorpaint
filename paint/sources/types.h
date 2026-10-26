@@ -276,6 +276,7 @@ typedef struct context {
 	f64                         select_time;
 	viewport_mode_t             viewport_mode;
 	void                       *viewport_shader;
+	gpu_texture_t              *viewport_texture;
 	bool                        hscale_was_changed;
 	mesh_format_t               export_mesh_format;
 	i32                         export_mesh_index;
@@ -770,6 +771,18 @@ typedef struct plugin {
 	char        *name;
 	minic_ctx_t *ctx;
 } plugin_t;
+
+typedef struct plugin_tool {
+	plugin_t      *plugin;
+	char          *name;
+	char          *tooltip;
+	i32            icon;
+	void          *on_header;
+	void          *on_stroke;
+	void          *on_stroke_end;
+	gpu_texture_t *overlay; // Tinted over the mesh in the viewport while the tool is active
+	i32            overlay_color;
+} plugin_tool_t;
 
 typedef struct rect {
 	i32 x;

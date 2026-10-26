@@ -69,10 +69,12 @@ typedef enum {
 	VIEWPORT_MODE_SUBSURFACE    = 9,
 	VIEWPORT_MODE_TEXCOORD      = 10,
 	VIEWPORT_MODE_OBJECT_NORMAL = 11,
-	VIEWPORT_MODE_MATERIAL_ID   = 12,
-	VIEWPORT_MODE_OBJECT_ID     = 13,
-	VIEWPORT_MODE_MASK          = 14,
-	VIEWPORT_MODE_PATH_TRACE    = 15,
+	VIEWPORT_MODE_WORLD_NORMAL  = 12,
+	VIEWPORT_MODE_MATERIAL_ID   = 13,
+	VIEWPORT_MODE_OBJECT_ID     = 14,
+	VIEWPORT_MODE_MASK          = 15,
+	VIEWPORT_MODE_PATH_TRACE    = 16,
+	VIEWPORT_MODE_PLUGIN        = 17,
 } viewport_mode_t;
 
 // Layouts to reset the docked tabs to
@@ -280,6 +282,7 @@ typedef enum {
 	TOOL_TYPE_PATH      = 22,
 	TOOL_TYPE_CURVE     = 23,
 	TOOL_TYPE_BAKE      = 24, // Hidden, used by Bake Texture node
+	TOOL_TYPE_PLUGIN    = 25, // First tool added by plugins, see plugin_register_tool
 } tool_type_t;
 
 typedef enum {
