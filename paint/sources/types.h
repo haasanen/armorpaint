@@ -11,6 +11,7 @@ typedef struct slot_brush {
 	struct ui_node_canvas *canvas;
 	struct gpu_texture    *image;      // 200px
 	struct gpu_texture    *image_icon; // 50px
+	struct gpu_texture    *image_wave; // Stroke preview, generated at runtime
 	bool                   preview_ready;
 	i32                    id;
 } slot_brush_t;
@@ -147,6 +148,9 @@ typedef struct config {
 	i32                  zoom_direction;
 	bool                 wrap_mouse;
 	bool                 show_asset_names;
+	bool                 material_params;
+	bool                 brush_params;
+	bool                 mesh_params;
 	bool                 touch_ui;
 	bool                 splash_screen;
 	bool                 header_pinned;   // Tool properties in the header, floating toolbar otherwise
@@ -181,7 +185,6 @@ typedef struct config {
 	bool                 view2d_grid_show;
 	i32                  view2d_grid_cell;
 	bool                 view2d_grid_snap;
-	materials_t          materials;
 } config_t;
 
 typedef struct slot_material {
