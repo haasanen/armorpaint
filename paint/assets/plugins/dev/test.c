@@ -455,15 +455,50 @@ void step_material_nodes() {
 	script_material_set(mat_noise);
 }
 
-// 11 - Shader node with a custom input
+// 11 - Shader node with a custom input, then one text writing several outputs
+
+void step_shader_node_outputs() {
+	slot_material_t *m  = script_material_create("test_shader_outputs");
+	ui_node_t       *sh = script_material_create_node_at("SHADER_GPU", -400.0, 0.0);
+	if (sh == NULL) {
+		check(0, "shader node outputs");
+		return;
+	}
+	// Early exit inside an if, the text ends with its own return
+	script_material_set_text(
+	    sh, 0,
+	    "if (tex_coord.x < -1.0) {\nreturn output;\n}\noutput.color = float3(0.0, 1.0, 0.0);\noutput.value = 1.0;\noutput.height = 0.5;\nreturn output;");
+	int ok = sh->outputs->length == 1; // Color only by default
+	script_material_add_output(sh, "VALUE", NULL);
+	script_material_add_output(sh, "VALUE", "Height");
+	ui_node_socket_t *value  = sh->outputs->length == 3 ? sh->outputs->buffer[1] : NULL;
+	ui_node_socket_t *height = sh->outputs->length == 3 ? sh->outputs->buffer[2] : NULL;
+	ok                       = ok && value != NULL && string_equals(value->name, "Value") && string_equals(height->name, "Height");
+	ui_node_t        *out    = script_material_get_node("OUTPUT_MATERIAL_PBR");
+	script_material_connect(sh, 0, out, 0); // Base Color
+	script_material_connect(sh, 1, out, 3); // Roughness
+	script_material_connect(sh, 2, out, 7); // Height
+	script_material_update();
+	slot_layer_t *l     = script_layer_new_fill();
+	float         green = pixels_fraction(export_base_pixels(), 0, 255, 0, 40);
+	float         rough = pixels_fraction(export_channel_pixels("_rough"), 255, 255, 255, 20);
+	check(ok && green > 0.5 && rough > 0.5, string("shader node outputs (%.2f green, %.2f rough)", green, rough));
+	script_layer_delete(l);
+	script_material_delete(m);
+	script_material_set(mat_noise);
+}
 
 void step_shader_node() {
+	if (sub == 1) {
+		step_shader_node_outputs();
+		return;
+	}
 	ui_node_t *sh = script_material_create_node_at("SHADER_GPU", -400.0, 200.0);
 	if (sh == NULL) {
 		check(0, "shader node");
 		return;
 	}
-	script_material_set_text(sh, 0, "float2 c = frac(tex_coord * 8.0);\nreturn lerp(float3(1.0, 0.8, 0.2), float3(0.1, 0.1, 0.3), step(dot_size, length(c - float2(0.5, 0.5))));");
+	script_material_set_text(sh, 0, "float2 c = frac(tex_coord * 8.0);\noutput.color = lerp(float3(1.0, 0.8, 0.2), float3(0.1, 0.1, 0.3), step(dot_size, length(c - float2(0.5, 0.5))));");
 	script_material_add_input(sh, "VALUE", "Dot Size");
 	script_material_set_float(sh, 1, 0, 0.3);
 	int ok = sh->inputs->length == 1;
@@ -476,6 +511,7 @@ void step_shader_node() {
 	script_material_connect(script_material_get_node("MIX_RGB"), 0, script_material_get_node("OUTPUT_MATERIAL_PBR"), 0);
 	script_material_update();
 	check(ok, "shader node with input");
+	step_again = 1;
 }
 
 // 12 - Color layer
@@ -653,14 +689,14 @@ void step_paint_pixels() {
 	export_name = NULL;
 }
 
-// 21 - A material reading the layer it paints (Layer node) sees the stroke start state, not its own output
+// 21 - A material reading the layer it paints (Layer node) reads black, it can not sample its own render target
 
 void step_paint_self() {
 	context_t *ctx     = script_get_context();
 	ctx->brush_radius  = 0.5;
 	ctx->brush_opacity = 1.0;
 
-	// Reference: a flat cyan stroke over a red layer
+	// Reference: the area of a flat cyan stroke over a red layer
 	slot_layer_t    *ref  = script_layer_new_color(0xffff0000, 1.0, 0.5, 0.0);
 	slot_material_t *flat = script_material_create("test_cyan");
 	ui_node_t       *cyan = script_material_create_node_at("RGB", -300.0, 0.0);
@@ -671,7 +707,7 @@ void step_paint_self() {
 	float expected = pixels_fraction(export_base_pixels(), 0, 255, 255, 40);
 	script_layer_delete(ref);
 
-	// The same stroke inverting the red layer it paints on
+	// The same stroke inverting the red layer it paints on, black inverts to white
 	slot_layer_t    *l      = script_layer_new_color(0xffff0000, 1.0, 0.5, 0.0);
 	slot_material_t *invert = script_material_create("test_invert_self");
 	ui_node_t       *ln     = script_material_create_node_at("LAYER", -600.0, 0.0);
@@ -681,8 +717,8 @@ void step_paint_self() {
 	script_material_connect(inv, 0, script_material_get_node("OUTPUT_MATERIAL_PBR"), 0);
 	script_material_update();
 	stroke_across(TOOL_TYPE_BRUSH);
-	float inverted = pixels_fraction(export_base_pixels(), 0, 255, 255, 40);
-	check(expected > 0.001 && inverted > expected * 0.9, string("self-reading stroke inverts the whole stroke (%.4f of %.4f cyan)", inverted, expected));
+	float inverted = pixels_fraction(export_base_pixels(), 255, 255, 255, 40);
+	check(expected > 0.001 && inverted > expected * 0.9, string("self-reading stroke reads the layer as black (%.4f white of %.4f)", inverted, expected));
 
 	script_layer_delete(l);
 	script_material_delete(flat);
@@ -2206,9 +2242,10 @@ void step_layer_path() {
 	slot_layer_t *l = script_layer_new_path(false);
 	check(l != NULL && l->path_points != NULL && !l->path_curved && l->path_material == mat_blue && layer_names_unique(),
 	      string("path layer %s created", l->name));
+	// Both points on the front face of the cube, a capsule across the edge cuts through the cube and paints only its ends
 	int ok = script_layer_add_path_point(l, 0.35, 0.5);
 	float dot = base_fraction(0x0000ff);
-	ok     = ok && script_layer_add_path_point(l, 0.65, 0.5);
+	ok     = ok && script_layer_add_path_point(l, 0.5, 0.5);
 	float line = base_fraction(0x0000ff);
 	check(ok && l->path_points->length == 4 && dot > 0.0005 && line > dot * 2.0, string("path points paint a line (%.4f dot, %.4f line)", dot, line));
 	check(!script_layer_add_path_point(script_layer_at(0), 0.5, 0.5), "no path points on a paint layer");
@@ -2453,7 +2490,7 @@ void run_step(int s) {
 }
 
 int step_count      = 82;
-int expected_checks = 223;
+int expected_checks = 224;
 
 void next_frame() {
 	if (sub == 0) {

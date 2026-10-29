@@ -42,7 +42,10 @@ typedef struct mesh_geo {
 typedef struct mesh_geo_image {
 	i32  width;
 	i32  height;
-	f32 *pixels; // Float rgba, rows from v 0
+	u8  *pixels;  // As stored in the texture, rows from v 0, read with mesh_geo_image_sample
+	i32  format;  // gpu_texture_format_t of the pixels
+	bool bgra;    // 8 bit rgba pixels in bgra order
+	i32  channel; // 0 - 3 reads that channel in all four, -1 rgba
 } mesh_geo_image_t;
 
 typedef struct slot_layer {
@@ -197,7 +200,6 @@ typedef struct slot_material {
 	i32                    id;
 	bool                   paint_base;
 	bool                   paint_opac;
-	i32                    paint_opac_mode;
 	bool                   paint_occ;
 	bool                   paint_rough;
 	bool                   paint_met;
@@ -617,6 +619,7 @@ typedef struct {
 	char                         *filepath;
 	i32                           next_asset_id;
 	struct mesh_object_t_array   *paint_objects;
+	bool                          translucency; // See-through meshes, detected from the bottom layer and kept on
 } project_runtime_t;
 
 typedef struct project {
@@ -1013,7 +1016,6 @@ typedef struct material_data2 {
 	bool paint_height;
 	bool paint_emis;
 	bool paint_subs;
-	int  opac_mode;
 } material_data2_t;
 
 typedef struct material_data2_t_array {

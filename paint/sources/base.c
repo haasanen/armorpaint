@@ -241,6 +241,10 @@ void base_draw_dashed_rect(f32 x, f32 y, f32 w, f32 h) {
 }
 
 void base_update(void *_) {
+	if (g_project->_->translucency && any_map_get(render_path_render_targets, "main_paint") == NULL) {
+		render_path_base_init_paint_depth();
+	}
+
 	if (mouse_movement_x != 0 || mouse_movement_y != 0) {
 		iron_mouse_set_cursor(IRON_CURSOR_ARROW);
 	}
@@ -407,8 +411,7 @@ void base_update(void *_) {
 		ui_node_canvas_t *canvas          = g_context->material->canvas;
 		for (i32 i = 0; i < canvas->nodes->length; ++i) {
 			ui_node_t *n = canvas->nodes->buffer[i];
-			if ((string_equals(n->type, "SCRIPT_CPU") && project_scripts_trusted) ||
-			    (string_equals(n->type, "SHADER_GPU") && string_index_of(shader_node_text(n), "constants.") != -1)) {
+			if ((string_equals(n->type, "SCRIPT_CPU") && project_scripts_trusted) || (string_equals(n->type, "SHADER_GPU") && shader_node_is_live(n))) {
 				has_script_node = true;
 				break;
 			}
@@ -426,6 +429,7 @@ void base_update(void *_) {
 	}
 	else {
 		tab_timeline_update();
+		layers_update_frame_fill_layers();
 	}
 
 	if (base_workspace_pending) {
@@ -853,7 +857,7 @@ string_array_t *base_combo_enum_texts(char *node_type) {
 		return &texts;
 	}
 
-	if (string_equals(node_type, "LAYER") || string_equals(node_type, "LAYER_MASK")) {
+	if (string_equals(node_type, "LAYER") || string_equals(node_type, "LAYER_MASK") || string_equals(node_type, "MESH_DISPLACE")) {
 		for (i32 i = 0; i < g_project->_->layers->length; ++i) {
 			slot_layer_t *l = g_project->_->layers->buffer[i];
 			string_array_push(&texts, l->name);
@@ -890,7 +894,7 @@ any_array_t *base_combo_enum_textures(char *node_type) {
 		return ar;
 	}
 
-	if (string_equals(node_type, "LAYER") || string_equals(node_type, "LAYER_MASK")) {
+	if (string_equals(node_type, "LAYER") || string_equals(node_type, "LAYER_MASK") || string_equals(node_type, "MESH_DISPLACE")) {
 		any_array_t *ar = any_array_create(0);
 		for (i32 i = 0; i < g_project->_->layers->length; ++i) {
 			slot_layer_t *l = g_project->_->layers->buffer[i];

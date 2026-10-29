@@ -7,7 +7,7 @@
 
 char *manifest_title           = "ArmorPaint";
 char *manifest_version         = "1.1alpha";
-char *manifest_version_project = "21";
+char *manifest_version_project = "22";
 char *manifest_version_config  = "1";
 char *manifest_url             = "https://armorpaint.org";
 char *manifest_url_android     = "https://play.google.com/store/apps/details?id=org.armorpaint";
@@ -54,6 +54,7 @@ gpu_pipeline_t  *pipes_merge    = NULL;
 gpu_pipeline_t  *pipes_merge_r  = NULL;
 gpu_pipeline_t  *pipes_merge_g  = NULL;
 gpu_pipeline_t  *pipes_merge_b  = NULL;
+gpu_pipeline_t  *pipes_merge_a  = NULL;
 gpu_pipeline_t  *pipes_merge_mask;
 gpu_pipeline_t  *pipes_invert_mask;
 gpu_pipeline_t  *pipes_apply_mask;
@@ -249,7 +250,6 @@ char                     *parser_material_sample_uv_scale       = "1.0";
 bool                      parser_material_transform_color_space = true;
 bool                      parser_material_blur_passthrough      = false;
 bool                      parser_material_warp_passthrough      = false;
-bool                      parser_material_bake_passthrough      = false;
 ui_node_canvas_t         *parser_material_start_group           = NULL;
 ui_node_t_array_t        *parser_material_start_parents         = NULL;
 ui_node_t                *parser_material_start_node            = NULL;
@@ -287,7 +287,6 @@ i32                       render_path_raytrace_bake_rays_sec       = 0;
 i32                       render_path_raytrace_bake_current_sample = 0;
 bool                      bake_texture_node_baking                 = false;
 gpu_texture_t            *bake_texture_node_texpaint               = NULL;
-bool                      make_material_transluc_used              = false;
 shader_context_t         *make_material_paint_scon                 = NULL; // Texture space paint pass
 shader_context_t         *make_material_depth_scon                 = NULL;
 any_array_t              *make_material_mesh_scons                 = NULL; // shader_context_t[], one per mesh layer pass
@@ -394,9 +393,6 @@ bool            render_path_raytrace_moving        = false;
 
 bool  sculpt_push_undo                          = false;
 i32   ui_statusbar_default_h                    = 33;
-char *parser_material_bake_passthrough_strength = "0.0";
-char *parser_material_bake_passthrough_radius   = "0.0";
-char *parser_material_bake_passthrough_offset   = "0.0";
 
 any_imap_t                  *neural_node_results;
 ui_node_t                   *neural_node_current;

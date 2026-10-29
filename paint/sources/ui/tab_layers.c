@@ -407,7 +407,7 @@ void tab_layers_draw_layer_slot_full(slot_layer_t *l, i32 i) {
 	}
 	f32 eye_x    = uix + 4;
 	f32 eye_w    = 18 * UI_SCALE();
-	f32 indent_x = eye_x + eye_w + 10 * UI_SCALE();
+	f32 indent_x = eye_x + eye_w + 4 * UI_SCALE();
 	i32 icon_h   = (UI_ELEMENT_H() - 3) * 2;
 	f32 icon_x   = indent_x + depth * 14 * UI_SCALE();
 	f32 name_x   = icon_x + icon_h + 8 * UI_SCALE();
@@ -666,6 +666,9 @@ void tab_layers_draw_layer_context_menu_clear(void *_) {
 		history_clear_layer();
 		slot_layer_clear(l, slot_layer_is_mask(l) ? 0xffffffff : 0x00000000, NULL, 1.0, layers_default_rough, 0.0);
 		util_layer_clear_path_points(l);
+		if (l == g_project->_->layers->buffer[0]) {
+			layers_enable_translucency();
+		}
 	}
 	else {
 		for (i32 i = 0; i < slot_layer_get_children(l)->length; ++i) {
@@ -673,6 +676,9 @@ void tab_layers_draw_layer_context_menu_clear(void *_) {
 			g_context->layer = c;
 			history_clear_layer();
 			slot_layer_clear(c, slot_layer_is_mask(c) ? 0xffffffff : 0x00000000, NULL, 1.0, layers_default_rough, 0.0);
+			if (c == g_project->_->layers->buffer[0]) {
+				layers_enable_translucency();
+			}
 		}
 		g_context->layers_preview_dirty = true;
 		g_context->layer                = l;
@@ -767,19 +773,6 @@ void tab_layers_draw_layer_context_menu_draw() {
 		}
 	}
 
-	ui_menu_align();
-	f32 mask_opacity = l->mask_opacity;
-	ui_set_next_id((ui_id_t)&l->mask_opacity);
-	ui_slider(&mask_opacity, tr("Opacity"), 0.0, 1.0, true, 100.0, true, UI_ALIGN_RIGHT, true);
-	if (ui_item_changed()) {
-		if (g_ui->input_started) {
-			history_layer_opacity();
-		}
-		l->mask_opacity = mask_opacity;
-		make_material_parse_mesh_material();
-		ui_menu_keep_open = true;
-	}
-
 	if (!slot_layer_is_group(l)) {
 		ui_menu_align();
 		string_array_t *aruv = any_array_create_from_raw(
@@ -796,6 +789,22 @@ void tab_layers_draw_layer_context_menu_draw() {
 			make_material_parse_mesh_material();
 			ui_menu_keep_open = true;
 		}
+	}
+
+	ui_menu_align();
+	f32 mask_opacity = l->mask_opacity;
+	ui_set_next_id((ui_id_t)&l->mask_opacity);
+	ui_slider(&mask_opacity, tr("Opacity"), 0.0, 1.0, true, 100.0, true, UI_ALIGN_RIGHT, true);
+	if (ui_item_changed()) {
+		if (g_ui->input_started) {
+			history_layer_opacity();
+		}
+		l->mask_opacity = mask_opacity;
+		if (l == g_project->_->layers->buffer[0] && mask_opacity < 1.0) {
+			layers_enable_translucency();
+		}
+		make_material_parse_mesh_material();
+		ui_menu_keep_open = true;
 	}
 	if (l->fill_material != NULL) {
 		ui_menu_align();

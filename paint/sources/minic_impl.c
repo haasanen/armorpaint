@@ -812,6 +812,9 @@ void script_layer_update(slot_layer_t *l) {
 	if (l->fill_material != NULL) {
 		script_layer_refill(l);
 	}
+	if (l == g_project->_->layers->buffer[0] && l->mask_opacity < 1.0) {
+		layers_enable_translucency();
+	}
 	make_material_parse_mesh_material();
 	script_gpu_end(current, in_use);
 	g_context->layers_preview_dirty = true;
@@ -988,6 +991,9 @@ void script_layer_clear(slot_layer_t *l) {
 		slot_layer_clear(l, slot_layer_is_mask(l) ? 0xffffffff : 0x00000000, NULL, 1.0, layers_default_rough, 0.0);
 		util_layer_clear_path_points(l);
 	}
+	if (l == g_project->_->layers->buffer[0] || l == g_project->_->layers->buffer[0]->parent) {
+		layers_enable_translucency();
+	}
 	script_layer_op_end(current, in_use);
 }
 
@@ -1117,6 +1123,18 @@ bool script_layer_add_path_point(slot_layer_t *l, f32 x, f32 y) {
 	g_context->tool = tool;
 	script_layer_op_end(current, in_use);
 	return l->path_points->length > count;
+}
+
+void script_layer_repaint_path(slot_layer_t *l) {
+	// Repaints with the current path material, after its nodes or the path points changed
+	if (!script_layer_valid(l) || !slot_layer_is_path(l)) {
+		return;
+	}
+	gpu_texture_t *current;
+	bool           in_use;
+	script_gpu_begin(&current, &in_use);
+	util_layer_repaint_path(l);
+	script_layer_op_end(current, in_use);
 }
 
 static void script_bake_lightmap_done(void *fn) {
@@ -1566,6 +1584,17 @@ void script_material_add_input(ui_node_t *node, char *type, char *name) {
 		return;
 	}
 	nodes_mesh_script_add_socket(canvas, node, type, name);
+	if (ui_nodes_hwnd != NULL) {
+		ui_nodes_hwnd->redraws = 2;
+	}
+}
+
+void script_material_add_output(ui_node_t *node, char *type, char *name) {
+	ui_node_canvas_t *canvas = script_material_canvas();
+	if (canvas == NULL || node == NULL || type == NULL || !string_equals(node->type, "SHADER_GPU")) {
+		return;
+	}
+	nodes_mesh_script_add_socket_to(canvas, node, type, name, true);
 	if (ui_nodes_hwnd != NULL) {
 		ui_nodes_hwnd->redraws = 2;
 	}
