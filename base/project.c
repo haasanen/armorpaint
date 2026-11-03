@@ -63,6 +63,9 @@ project_t *main() {
 	else if (platform == PLATFORM_MACOS) {
 		add_cfiles(project, "sources/backends/macos_system.*");
 		add_cfiles(project, "sources/backends/apple_net.*");
+		if (flags->with_audio) {
+			add_cfiles(project, "sources/backends/macos_audio.c");
+		}
 		add_cfiles(project, "sources/backends/apple_thread.*");
 		add_cfiles(project, "sources/backends/metal_gpu.*");
 		add_cfiles(project, "sources/backends/data/mac.plist");
@@ -75,6 +78,11 @@ project_t *main() {
 		add_cfiles(project, "sources/backends/metal_gpu.*");
 		add_cfiles(project, "sources/backends/data/ios.plist");
 		add_cfiles(project, "sources/backends/ios_file_dialog.m");
+		if (flags->with_audio) {
+			add_cfiles(project, "sources/backends/ios_audio.m");
+			add_lib(project, "AudioToolbox");
+			add_lib(project, "AVFoundation");
+		}
 		add_define(project, "IRON_METAL");
 		project->ios.build   = string("%d", version_code());
 		project->ios.version = string("%d", version_code());
@@ -94,6 +102,7 @@ project_t *main() {
 		add_lib(project, "android");
 		if (flags->with_audio) {
 			add_lib(project, "OpenSLES");
+			add_cfiles(project, "sources/backends/android_audio.c");
 		}
 		project->android.package      = flags->package;
 		project->android.permissions  = "android.permission.INTERNET";
@@ -209,7 +218,7 @@ project_t *main() {
 		add_define(project, "WITH_GAMEPAD");
 	}
 
-	bool with_websocket = platform == PLATFORM_LINUX || platform == PLATFORM_WINDOWS;
+	bool with_websocket = platform == PLATFORM_LINUX || platform == PLATFORM_WINDOWS || platform == PLATFORM_MACOS;
 	if (with_websocket) {
 		add_define(project, "WITH_WEBSOCKET");
 		if (platform == PLATFORM_WINDOWS) {
@@ -217,6 +226,9 @@ project_t *main() {
 		}
 		else if (platform == PLATFORM_LINUX) {
 			add_cfiles(project, "sources/backends/posix_websocket.c");
+		}
+		else if (platform == PLATFORM_MACOS) {
+			add_cfiles(project, "sources/backends/macos_websocket.m");
 		}
 	}
 
