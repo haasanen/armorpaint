@@ -13,9 +13,10 @@
 
 extern uint32_t constant_buffer_index;
 
-static VkSemaphore                      framebuffer_available_semaphore;
+static VkSemaphore                      framebuffer_available_semaphores[GPU_FRAMES_IN_FLIGHT];
 static VkSemaphore                      rendering_finished_semaphores[GPU_FRAMEBUFFER_COUNT];
-static VkFence                          fence;
+static VkFence                          fences[GPU_FRAMES_IN_FLIGHT];
+static bool                             fences_pending[GPU_FRAMES_IN_FLIGHT];
 static VkViewport                       current_viewport;
 static VkRect2D                         current_scissor;
 static gpu_buffer_t                    *current_vb;
@@ -30,6 +31,7 @@ static VkPhysicalDeviceMemoryProperties memory_properties;
 static VkSampler                        linear_sampler;
 static VkSampler                        point_sampler;
 static bool                             linear_sampling = true;
+static VkCommandBuffer                  command_buffers[GPU_FRAMES_IN_FLIGHT];
 static VkCommandBuffer                  command_buffer;
 static VkBuffer                         buffers_to_destroy[512];
 static VkDeviceMemory                   buffer_memories_to_destroy[512];
@@ -47,6 +49,7 @@ static VkDebugUtilsMessengerEXT debug_messenger;
 #endif
 
 static bool               surface_destroyed;
+static bool               swapchain_suboptimal;
 static int                window_depth_bits;
 static bool               window_vsync;
 static VkSurfaceKHR       surface;
@@ -62,12 +65,6 @@ static VkDeviceMemory     readback_mem;
 static VkBuffer           upload_buffer;
 static uint32_t           upload_buffer_size = 0;
 static VkDeviceMemory     upload_mem;
-static bool               is_amd = false;
-#ifdef IRON_ANDROID
-static bool unified_memory = true;
-#else
-static bool unified_memory = false;
-#endif
 
 void     iron_vulkan_get_instance_extensions(const char **extensions, int *index);
 VkBool32 iron_vulkan_get_physical_device_presentation_support(VkPhysicalDevice physical_device, uint32_t queue_family_index);
@@ -116,6 +113,8 @@ static VkCompareOp convert_compare_mode(gpu_compare_mode_t compare) {
 		return VK_COMPARE_OP_NEVER;
 	case GPU_COMPARE_MODE_EQUAL:
 		return VK_COMPARE_OP_EQUAL;
+	case GPU_COMPARE_MODE_GREATER:
+		return VK_COMPARE_OP_GREATER;
 	case GPU_COMPARE_MODE_LESS:
 		return VK_COMPARE_OP_LESS;
 	}
@@ -195,39 +194,65 @@ static bool find_layer(VkLayerProperties *layers, int layer_count, const char *w
 static uint32_t memory_type_from_properties(uint32_t type_bits, VkFlags requirements_mask) {
 	uint32_t     best_index = 0;
 	VkDeviceSize best_size  = 0;
-	for (uint32_t i = 0; i < 32; i++) {
-		if ((type_bits & 1) == 1) {
-			if (is_amd && memory_properties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_COHERENT_BIT_AMD) {
-				continue;
-			}
-			if ((memory_properties.memoryTypes[i].propertyFlags & requirements_mask) == requirements_mask) {
-				uint32_t     heap_index = memory_properties.memoryTypes[i].heapIndex;
-				VkDeviceSize heap_size  = memory_properties.memoryHeaps[heap_index].size;
-				if (heap_size > best_size) {
-					best_size  = heap_size;
-					best_index = i;
-				}
+	for (uint32_t i = 0; i < memory_properties.memoryTypeCount; i++) {
+		if (!(type_bits & (1u << i))) {
+			continue;
+		}
+		if (memory_properties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_COHERENT_BIT_AMD) {
+			continue;
+		}
+		if ((memory_properties.memoryTypes[i].propertyFlags & requirements_mask) == requirements_mask) {
+			uint32_t     heap_index = memory_properties.memoryTypes[i].heapIndex;
+			VkDeviceSize heap_size  = memory_properties.memoryHeaps[heap_index].size;
+			if (heap_size > best_size) {
+				best_size  = heap_size;
+				best_index = i;
 			}
 		}
-		type_bits >>= 1;
 	}
 	return best_index;
 }
 
-static VkAccessFlags access_mask(VkImageLayout layout) {
-	if (layout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL) {
-		return VK_ACCESS_TRANSFER_READ_BIT;
+static VkPipelineStageFlags barrier_stage(gpu_texture_state_t state, bool dst) {
+	switch (state) {
+	case GPU_TEXTURE_STATE_SHADER_RESOURCE:
+		return VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+	case GPU_TEXTURE_STATE_RENDER_TARGET_DEPTH:
+		return VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+	case GPU_TEXTURE_STATE_RENDER_TARGET:
+		return VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	case GPU_TEXTURE_STATE_PRESENT:
+		return dst ? VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT : VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 	}
-	if (layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
-		return VK_ACCESS_TRANSFER_WRITE_BIT;
+	return VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+}
+
+static VkAccessFlags barrier_access(gpu_texture_state_t state) {
+	switch (state) {
+	case GPU_TEXTURE_STATE_SHADER_RESOURCE:
+		return VK_ACCESS_SHADER_READ_BIT;
+	case GPU_TEXTURE_STATE_RENDER_TARGET_DEPTH:
+		return VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+	case GPU_TEXTURE_STATE_RENDER_TARGET:
+		return VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+	case GPU_TEXTURE_STATE_PRESENT:
+		return 0;
 	}
-	if (layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
-		return VK_ACCESS_MEMORY_READ_BIT;
-	}
-	return 0;
+	return VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
 }
 
 void gpu_barrier(gpu_texture_t *render_target, gpu_texture_state_t state_after) {
+	static bool vertex_textures_last = true;
+	if (gpu_vertex_textures && !vertex_textures_last) {
+		VkMemoryBarrier memory_barrier = {
+		    .sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+		    .srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT,
+		    .dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT,
+		};
+		vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &memory_barrier, 0, NULL, 0, NULL);
+	}
+	vertex_textures_last = gpu_vertex_textures;
+
 	if (render_target->state == state_after) {
 		return;
 	}
@@ -243,8 +268,8 @@ void gpu_barrier(gpu_texture_t *render_target, gpu_texture_state_t state_after) 
 
 	VkImageMemoryBarrier barrier = {
 	    .sType         = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-	    .srcAccessMask = access_mask(old_layout),
-	    .dstAccessMask = access_mask(convert_texture_state(state_after)),
+	    .srcAccessMask = barrier_access(render_target->state),
+	    .dstAccessMask = barrier_access(state_after),
 	    .oldLayout     = old_layout,
 	    .newLayout     = convert_texture_state(state_after),
 	    .image         = render_target->impl.image,
@@ -257,7 +282,13 @@ void gpu_barrier(gpu_texture_t *render_target, gpu_texture_state_t state_after) 
 	            .layerCount     = 1,
 	        },
 	};
-	vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
+	VkPipelineStageFlags src_stage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+	VkPipelineStageFlags dst_stage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+	if (!gpu_vertex_textures) {
+		src_stage = barrier_stage(render_target->state, false);
+		dst_stage = barrier_stage(state_after, true);
+	}
+	vkCmdPipelineBarrier(command_buffer, src_stage, dst_stage, 0, 0, NULL, 0, NULL, 1, &barrier);
 
 	render_target->state = state_after;
 }
@@ -269,8 +300,8 @@ static void set_image_layout(VkImage image, VkImageAspectFlags aspect_mask, VkIm
 
 	VkImageMemoryBarrier barrier = {
 	    .sType                           = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-	    .srcAccessMask                   = 0,
-	    .dstAccessMask                   = 0,
+	    .srcAccessMask                   = VK_ACCESS_MEMORY_WRITE_BIT,
+	    .dstAccessMask                   = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT,
 	    .oldLayout                       = old_layout,
 	    .newLayout                       = new_layout,
 	    .image                           = image,
@@ -280,16 +311,6 @@ static void set_image_layout(VkImage image, VkImageAspectFlags aspect_mask, VkIm
 	    .subresourceRange.baseArrayLayer = 0,
 	    .subresourceRange.layerCount     = 1,
 	};
-
-	if (new_layout == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR) {
-		barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
-	}
-	if (new_layout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) {
-		barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-	}
-	if (new_layout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL) {
-		barrier.dstAccessMask = barrier.dstAccessMask | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-	}
 
 	vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
 
@@ -378,15 +399,6 @@ static void create_descriptors(void) {
 	sampler_info.minFilter  = VK_FILTER_NEAREST;
 	sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
 	vkCreateSampler(device, &sampler_info, NULL, &point_sampler);
-}
-
-VkSwapchainKHR cleanup_swapchain() {
-	// for (int i = 0; i < GPU_FRAMEBUFFER_COUNT; ++i) {
-	// 	gpu_texture_destroy_internal(&framebuffers[i]);
-	// }
-	VkSwapchainKHR chain = swapchain;
-	swapchain            = VK_NULL_HANDLE;
-	return chain;
 }
 
 static void gpu_cleanup_internal() {
@@ -488,7 +500,9 @@ static uint32_t umax(uint32_t a, uint32_t b) {
 }
 
 static void create_swapchain() {
-	VkSwapchainKHR old_swapchain = cleanup_swapchain();
+	vkQueueWaitIdle(queue);
+	VkSwapchainKHR old_swapchain = swapchain;
+	swapchain                    = VK_NULL_HANDLE;
 	if (surface_destroyed) {
 		vkDestroySwapchainKHR(device, old_swapchain, NULL);
 		old_swapchain = VK_NULL_HANDLE;
@@ -506,7 +520,7 @@ static void create_swapchain() {
 	present_mode_count = present_mode_count > 256 ? 256 : present_mode_count;
 	vkGetPhysicalDeviceSurfacePresentModesKHR(gpu, surface, &present_mode_count, present_modes);
 
-	uint32_t image_count = GPU_FRAMEBUFFER_COUNT;
+	uint32_t image_count = 3;
 	if (image_count < caps.minImageCount) {
 		image_count = caps.minImageCount;
 	}
@@ -571,8 +585,8 @@ static void create_swapchain() {
 		vkDestroySwapchainKHR(device, old_swapchain, NULL);
 	}
 
-	uint32_t framebuffer_count = GPU_FRAMEBUFFER_COUNT;
-	// vkGetSwapchainImagesKHR(device, swapchain, &framebuffer_count, NULL);
+	uint32_t framebuffer_count = 0;
+	vkGetSwapchainImagesKHR(device, swapchain, &framebuffer_count, NULL);
 	vkGetSwapchainImagesKHR(device, swapchain, &framebuffer_count, window_images);
 
 	for (uint32_t i = 0; i < framebuffer_count; i++) {
@@ -597,13 +611,9 @@ static void create_swapchain() {
 		    .image                           = window_images[i],
 		};
 		vkCreateImageView(device, &color_attachment_view, NULL, &framebuffers[i].impl.view);
-		// gpu_texture_destroy_internal(&framebuffers[i]);
-		// gpu_render_target_init2(&framebuffers[i], iron_window_width(), iron_window_height(), GPU_TEXTURE_FORMAT_RGBA32, i);
 		framebuffers[i].width  = image_extent.width;
 		framebuffers[i].height = image_extent.height;
 	}
-
-	framebuffer_index = 0;
 
 	if (window_depth_bits > 0) {
 		VkImageCreateInfo image = {
@@ -650,9 +660,16 @@ static void create_swapchain() {
 }
 
 static void acquire_next_image() {
-	VkResult err = vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, framebuffer_available_semaphore, VK_NULL_HANDLE, (uint32_t *)&framebuffer_index);
-	if (err == VK_ERROR_SURFACE_LOST_KHR || err == VK_ERROR_OUT_OF_DATE_KHR || err == VK_SUBOPTIMAL_KHR || surface_destroyed) {
-		surface_destroyed        = surface_destroyed || (err == VK_ERROR_SURFACE_LOST_KHR);
+	bool recreate = surface_destroyed || swapchain_suboptimal;
+	if (!recreate) {
+		VkResult err         = vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, framebuffer_available_semaphores[gpu_frame_index], VK_NULL_HANDLE,
+		                                             (uint32_t *)&framebuffer_index);
+		surface_destroyed    = err == VK_ERROR_SURFACE_LOST_KHR;
+		swapchain_suboptimal = err == VK_SUBOPTIMAL_KHR;
+		recreate             = surface_destroyed || err == VK_ERROR_OUT_OF_DATE_KHR;
+	}
+	if (recreate) {
+		swapchain_suboptimal     = false;
 		framebuffer_wait_pending = false;
 		gpu_in_use               = false;
 		create_swapchain();
@@ -809,7 +826,6 @@ void gpu_init_internal(int depth_buffer_bits, bool vsync) {
 		vkGetPhysicalDeviceProperties(gpu, &properties);
 		iron_log("Chosen Vulkan device: %s", properties.deviceName);
 		strcpy(device_name, properties.deviceName);
-		is_amd = properties.vendorID == 0x1002;
 		free(physical_devices);
 	}
 	else {
@@ -972,7 +988,9 @@ void gpu_init_internal(int depth_buffer_bits, bool vsync) {
 	    .flags = 0,
 	};
 
-	vkCreateSemaphore(device, &sem_info, NULL, &framebuffer_available_semaphore);
+	for (int i = 0; i < GPU_FRAMES_IN_FLIGHT; ++i) {
+		vkCreateSemaphore(device, &sem_info, NULL, &framebuffer_available_semaphores[i]);
+	}
 	for (uint32_t i = 0; i < GPU_FRAMEBUFFER_COUNT; i++) {
 		vkCreateSemaphore(device, &sem_info, NULL, &rendering_finished_semaphores[i]);
 	}
@@ -987,7 +1005,7 @@ void gpu_init_internal(int depth_buffer_bits, bool vsync) {
 
 	VkSurfaceFormatKHR surf_formats[256];
 	uint32_t           format_count = sizeof(surf_formats) / sizeof(surf_formats[0]);
-	VkResult           result       = vkGetPhysicalDeviceSurfaceFormatsKHR(gpu, surface, &format_count, surf_formats);
+	vkGetPhysicalDeviceSurfaceFormatsKHR(gpu, surface, &format_count, surf_formats);
 
 	if (format_count == 1 && surf_formats[0].format == VK_FORMAT_UNDEFINED) {
 		surface_format = surf_formats[0];
@@ -1010,9 +1028,10 @@ void gpu_init_internal(int depth_buffer_bits, bool vsync) {
 	    .sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
 	    .commandPool        = cmd_pool,
 	    .level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-	    .commandBufferCount = 1,
+	    .commandBufferCount = GPU_FRAMES_IN_FLIGHT,
 	};
-	vkAllocateCommandBuffers(device, &cmd, &command_buffer);
+	vkAllocateCommandBuffers(device, &cmd, command_buffers);
+	command_buffer = command_buffers[0];
 
 	VkCommandBufferBeginInfo begin_info = {
 	    .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
@@ -1027,7 +1046,9 @@ void gpu_init_internal(int depth_buffer_bits, bool vsync) {
 	    .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
 	    .flags = VK_FENCE_CREATE_SIGNALED_BIT,
 	};
-	vkCreateFence(device, &fence_info, NULL, &fence);
+	for (int i = 0; i < GPU_FRAMES_IN_FLIGHT; ++i) {
+		vkCreateFence(device, &fence_info, NULL, &fences[i]);
+	}
 
 	uint8_t dummy_pixel[4] = {0, 0, 0, 0};
 	gpu_texture_init_from_bytes(&dummy_texture, dummy_pixel, 1, 1, GPU_TEXTURE_FORMAT_RGBA32, false);
@@ -1038,7 +1059,7 @@ void iron_vulkan_surface_destroyed() {
 }
 
 bool iron_vulkan_get_size(int *width, int *height) {
-	if (surface) {
+	if (surface && !surface_destroyed) {
 		VkSurfaceCapabilitiesKHR capabilities;
 		vkGetPhysicalDeviceSurfaceCapabilitiesKHR(gpu, surface, &capabilities);
 		*width  = capabilities.currentExtent.width;
@@ -1048,11 +1069,15 @@ bool iron_vulkan_get_size(int *width, int *height) {
 	return false;
 }
 
-void gpu_begin_internal(gpu_clear_t flags, uint32_t color, float depth) {
+void gpu_acquire_framebuffer() {
 	if (!framebuffer_acquired) {
 		acquire_next_image();
 		framebuffer_acquired = true;
 	}
+}
+
+void gpu_begin_internal(gpu_clear_t flags, uint32_t color, float depth) {
+	gpu_acquire_framebuffer();
 
 	gpu_texture_t *target = current_render_targets[0];
 
@@ -1074,7 +1099,9 @@ void gpu_begin_internal(gpu_clear_t flags, uint32_t color, float depth) {
 		    .imageLayout        = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 		    .resolveMode        = VK_RESOLVE_MODE_NONE,
 		    .resolveImageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-		    .loadOp             = (flags & GPU_CLEAR_COLOR) ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD,
+		    .loadOp             = (flags & GPU_CLEAR_COLOR)             ? VK_ATTACHMENT_LOAD_OP_CLEAR
+		                          : (flags & GPU_CLEAR_DONT_LOAD_COLOR) ? VK_ATTACHMENT_LOAD_OP_DONT_CARE
+		                                                                : VK_ATTACHMENT_LOAD_OP_LOAD,
 		    .storeOp            = VK_ATTACHMENT_STORE_OP_STORE,
 		    .clearValue         = clear_value,
 		};
@@ -1088,7 +1115,7 @@ void gpu_begin_internal(gpu_clear_t flags, uint32_t color, float depth) {
 		    .resolveMode        = VK_RESOLVE_MODE_NONE,
 		    .resolveImageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 		    .loadOp             = (flags & GPU_CLEAR_DEPTH) ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD,
-		    .storeOp            = VK_ATTACHMENT_STORE_OP_STORE,
+		    .storeOp            = (flags & GPU_CLEAR_DONT_STORE_DEPTH) ? VK_ATTACHMENT_STORE_OP_DONT_CARE : VK_ATTACHMENT_STORE_OP_STORE,
 		    .clearValue         = depth,
 		};
 	}
@@ -1123,9 +1150,15 @@ void gpu_end_internal() {
 		            current_render_targets[i] == &framebuffers[framebuffer_index] ? GPU_TEXTURE_STATE_PRESENT : GPU_TEXTURE_STATE_SHADER_RESOURCE);
 	}
 	current_render_targets_count = 0;
+}
 
-	if (is_amd) {
-		gpu_execute_and_wait(); ////
+static void wait_for_framebuffer(VkSubmitInfo *submit_info) {
+	static const VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	if (framebuffer_wait_pending) {
+		submit_info->waitSemaphoreCount = 1;
+		submit_info->pWaitSemaphores    = &framebuffer_available_semaphores[gpu_frame_index];
+		submit_info->pWaitDstStageMask  = &wait_stage;
+		framebuffer_wait_pending        = false;
 	}
 }
 
@@ -1134,7 +1167,7 @@ void gpu_execute_and_wait() {
 		vkCmdEndRendering(command_buffer);
 	}
 	vkEndCommandBuffer(command_buffer);
-	vkResetFences(device, 1, &fence);
+	vkResetFences(device, 1, &fences[gpu_frame_index]);
 
 	VkSubmitInfo submit_info = {
 	    .sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO,
@@ -1142,15 +1175,9 @@ void gpu_execute_and_wait() {
 	    .pCommandBuffers    = &command_buffer,
 	};
 
-	VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	if (framebuffer_wait_pending) {
-		submit_info.waitSemaphoreCount = 1;
-		submit_info.pWaitSemaphores    = &framebuffer_available_semaphore;
-		submit_info.pWaitDstStageMask  = &wait_stage;
-		framebuffer_wait_pending       = false;
-	}
-	vkQueueSubmit(queue, 1, &submit_info, fence);
-	vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
+	wait_for_framebuffer(&submit_info);
+	vkQueueSubmit(queue, 1, &submit_info, fences[gpu_frame_index]);
+	vkWaitForFences(device, 1, &fences[gpu_frame_index], VK_TRUE, UINT64_MAX);
 
 	vkResetCommandBuffer(command_buffer, 0);
 	VkCommandBufferBeginInfo begin_info = {
@@ -1174,7 +1201,7 @@ void gpu_execute_and_wait() {
 
 void gpu_present_internal() {
 	vkEndCommandBuffer(command_buffer);
-	vkResetFences(device, 1, &fence);
+	vkResetFences(device, 1, &fences[gpu_frame_index]);
 
 	VkSubmitInfo submit_info = {
 	    .sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO,
@@ -1184,15 +1211,9 @@ void gpu_present_internal() {
 	    .pSignalSemaphores    = &rendering_finished_semaphores[framebuffer_index],
 	};
 
-	VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	if (framebuffer_wait_pending) {
-		submit_info.waitSemaphoreCount = 1;
-		submit_info.pWaitSemaphores    = &framebuffer_available_semaphore;
-		submit_info.pWaitDstStageMask  = &wait_stage;
-		framebuffer_wait_pending       = false;
-	}
-	vkQueueSubmit(queue, 1, &submit_info, fence);
-	vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
+	wait_for_framebuffer(&submit_info);
+	vkQueueSubmit(queue, 1, &submit_info, fences[gpu_frame_index]);
+	fences_pending[gpu_frame_index] = true;
 
 	VkPresentInfoKHR present = {
 	    .sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
@@ -1204,21 +1225,30 @@ void gpu_present_internal() {
 	};
 	vkQueuePresentKHR(queue, &present);
 
+	if (buffers_to_destroy_count > 0 || gpu_cleanup_pending()) {
+		vkQueueWaitIdle(queue);
+	}
+
+	gpu_frame_index = (gpu_frame_index + 1) % GPU_FRAMES_IN_FLIGHT;
+	command_buffer  = command_buffers[gpu_frame_index];
+	if (fences_pending[gpu_frame_index]) {
+		vkWaitForFences(device, 1, &fences[gpu_frame_index], VK_TRUE, UINT64_MAX);
+		fences_pending[gpu_frame_index] = false;
+	}
+
 	vkResetCommandBuffer(command_buffer, 0);
 	VkCommandBufferBeginInfo begin_info = {
 	    .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
 	};
 	vkBeginCommandBuffer(command_buffer, &begin_info);
 
-	// acquire_next_image(); // Breaks window resize
 	framebuffer_acquired = false;
-	framebuffer_index    = (framebuffer_index + 1) % GPU_FRAMEBUFFER_COUNT;
 
 	gpu_cleanup_internal();
 }
 
 void gpu_draw_internal() {
-	vkCmdDrawIndexed(command_buffer, current_ib->count, 1, 0, 0, 0);
+	vkCmdDrawIndexed(command_buffer, current_ib->count, 1, 0, current_vb->start, 0);
 }
 
 void gpu_viewport(int x, int y, int width, int height) {
@@ -1604,7 +1634,7 @@ void gpu_pipeline_compile(gpu_pipeline_t *pipeline) {
 	};
 	pipeline_info.pNext = &rendering_info;
 
-	VkResult result = vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_info, NULL, &pipeline->impl.pipeline);
+	vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_info, NULL, &pipeline->impl.pipeline);
 	vkDestroyShaderModule(device, frag_shader_module, NULL);
 	vkDestroyShaderModule(device, vert_shader_module, NULL);
 }
@@ -2214,7 +2244,7 @@ void gpu_texture_init_from_bytes(gpu_texture_t *texture, void *data, uint32_t wi
 		vkCmdBeginRendering(command_buffer, &current_rendering_info);
 	}
 
-	gpu_execute_and_wait(); ////
+	gpu_execute_and_wait();
 
 #ifdef WITH_MIPMAPS
 	if (mip_data != NULL) {
@@ -2319,13 +2349,14 @@ void gpu_vertex_buffer_init(gpu_buffer_t *buffer, uint32_t count, gpu_vertex_str
 		gpu_vertex_element_t element = structure->elements[i];
 		buffer->stride += gpu_vertex_data_size(element.data);
 	}
+	buffer->start        = 0;
 	buffer->cpu_write    = false;
 	buffer->impl.buf     = NULL;
 	buffer->impl.cpu_buf = NULL;
 }
 
 void *gpu_vertex_buffer_lock(gpu_buffer_t *buffer) {
-	if (unified_memory && buffer->cpu_write) {
+	if (buffer->cpu_write) {
 		if (buffer->impl.buf == NULL) {
 			_gpu_buffer_init(&buffer->impl.buf, &buffer->impl.mem, gpu_buffer_alloc_size(buffer->count, buffer->stride), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
 			                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
@@ -2335,10 +2366,8 @@ void *gpu_vertex_buffer_lock(gpu_buffer_t *buffer) {
 		return p;
 	}
 
-	if (!buffer->cpu_write || buffer->impl.cpu_buf == NULL) {
-		_gpu_buffer_init(&buffer->impl.cpu_buf, &buffer->impl.cpu_mem, gpu_buffer_alloc_size(buffer->count, buffer->stride), VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-		                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-	}
+	_gpu_buffer_init(&buffer->impl.cpu_buf, &buffer->impl.cpu_mem, gpu_buffer_alloc_size(buffer->count, buffer->stride), VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+	                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 	void *p;
 	vkMapMemory(device, buffer->impl.cpu_mem, 0, gpu_buffer_alloc_size(buffer->count, buffer->stride), 0, (void **)&p);
 	return p;
@@ -2346,23 +2375,18 @@ void *gpu_vertex_buffer_lock(gpu_buffer_t *buffer) {
 
 void gpu_vertex_buffer_unlock(gpu_buffer_t *buffer) {
 	buffer->version = ++gpu_buffer_versions;
-	if (unified_memory && buffer->cpu_write) {
+	if (buffer->cpu_write) {
 		vkUnmapMemory(device, buffer->impl.mem);
 		return;
 	}
 
-	if (!buffer->cpu_write || buffer->impl.buf == NULL) {
-		_gpu_buffer_init(&buffer->impl.buf, &buffer->impl.mem, gpu_buffer_alloc_size(buffer->count, buffer->stride),
-		                 VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-	}
+	_gpu_buffer_init(&buffer->impl.buf, &buffer->impl.mem, gpu_buffer_alloc_size(buffer->count, buffer->stride),
+	                 VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 	vkUnmapMemory(device, buffer->impl.cpu_mem);
 	_gpu_buffer_copy(buffer->impl.buf, buffer->impl.cpu_buf, gpu_buffer_alloc_size(buffer->count, buffer->stride));
-
-	if (!buffer->cpu_write) {
-		queue_buffer_destroy(buffer->impl.cpu_buf, buffer->impl.cpu_mem);
-		buffer->impl.cpu_buf = NULL;
-		buffer->impl.cpu_mem = VK_NULL_HANDLE;
-	}
+	queue_buffer_destroy(buffer->impl.cpu_buf, buffer->impl.cpu_mem);
+	buffer->impl.cpu_buf = NULL;
+	buffer->impl.cpu_mem = VK_NULL_HANDLE;
 }
 
 void gpu_index_buffer_init(gpu_buffer_t *buffer, uint32_t count) {
@@ -2611,7 +2635,6 @@ uint64_t get_buffer_device_address(VkBuffer buffer) {
 	    .sType  = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
 	    .buffer = buffer,
 	};
-	_vkGetBufferDeviceAddressKHR = (void *)vkGetDeviceProcAddr(device, "vkGetBufferDeviceAddressKHR");
 	return _vkGetBufferDeviceAddressKHR(device, &buffer_device_address_info);
 }
 
@@ -2620,6 +2643,8 @@ void gpu_raytrace_acceleration_structure_init(gpu_acceleration_structure_t *acce
 	_vkCreateAccelerationStructureKHR           = (void *)vkGetDeviceProcAddr(device, "vkCreateAccelerationStructureKHR");
 	_vkGetAccelerationStructureDeviceAddressKHR = (void *)vkGetDeviceProcAddr(device, "vkGetAccelerationStructureDeviceAddressKHR");
 	_vkGetAccelerationStructureBuildSizesKHR    = (void *)vkGetDeviceProcAddr(device, "vkGetAccelerationStructureBuildSizesKHR");
+	_vkCmdBuildAccelerationStructuresKHR        = (void *)vkGetDeviceProcAddr(device, "vkCmdBuildAccelerationStructuresKHR");
+	_vkDestroyAccelerationStructureKHR          = (void *)vkGetDeviceProcAddr(device, "vkDestroyAccelerationStructureKHR");
 
 	vb_count        = 0;
 	instances_count = 0;
@@ -2659,7 +2684,6 @@ void gpu_raytrace_acceleration_structure_add(gpu_acceleration_structure_t *accel
 }
 
 void _gpu_raytrace_acceleration_structure_destroy_bottom(gpu_acceleration_structure_t *accel) {
-	_vkDestroyAccelerationStructureKHR = (void *)vkGetDeviceProcAddr(device, "vkDestroyAccelerationStructureKHR");
 	for (int i = 0; i < vb_count_last; ++i) {
 		_vkDestroyAccelerationStructureKHR(device, accel->impl.bottom_level_acceleration_structure[i], NULL);
 		vkFreeMemory(device, accel->impl.bottom_level_mem[i], NULL);
@@ -2668,7 +2692,6 @@ void _gpu_raytrace_acceleration_structure_destroy_bottom(gpu_acceleration_struct
 }
 
 void _gpu_raytrace_acceleration_structure_destroy_top(gpu_acceleration_structure_t *accel) {
-	_vkDestroyAccelerationStructureKHR = (void *)vkGetDeviceProcAddr(device, "vkDestroyAccelerationStructureKHR");
 	_vkDestroyAccelerationStructureKHR(device, accel->impl.top_level_acceleration_structure, NULL);
 	vkFreeMemory(device, accel->impl.top_level_mem, NULL);
 	vkDestroyBuffer(device, accel->impl.top_level_buffer, NULL);
@@ -2690,6 +2713,110 @@ static void create_instance_data() {
 		data[i].geometry      = inst->i;
 	}
 	vkUnmapMemory(device, instance_data_mem);
+}
+
+static void create_address_buffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer *buffer, VkDeviceMemory *memory) {
+	VkBufferCreateInfo buffer_info = {
+	    .sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+	    .size        = size,
+	    .usage       = usage | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+	    .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+	};
+	vkCreateBuffer(device, &buffer_info, NULL, buffer);
+
+	VkMemoryRequirements requirements;
+	vkGetBufferMemoryRequirements(device, *buffer, &requirements);
+
+	VkMemoryAllocateFlagsInfo flags_info = {
+	    .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO,
+	    .flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT_KHR,
+	};
+	VkMemoryAllocateInfo alloc_info = {
+	    .sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+	    .pNext           = &flags_info,
+	    .allocationSize  = requirements.size,
+	    .memoryTypeIndex = memory_type_from_properties(requirements.memoryTypeBits, properties),
+	};
+	vkAllocateMemory(device, &alloc_info, NULL, memory);
+	vkBindBufferMemory(device, *buffer, *memory, 0);
+}
+
+static void build_acceleration_structure(VkAccelerationStructureTypeKHR type, const VkAccelerationStructureGeometryKHR *geometry, uint32_t primitive_count,
+                                         VkAccelerationStructureKHR *structure, uint64_t *handle, VkBuffer *buffer, VkDeviceMemory *memory) {
+	VkAccelerationStructureBuildGeometryInfoKHR build_info = {
+	    .sType         = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR,
+	    .type          = type,
+	    .flags         = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR,
+	    .mode          = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR,
+	    .geometryCount = 1,
+	    .pGeometries   = geometry,
+	};
+
+	VkAccelerationStructureBuildSizesInfoKHR sizes = {
+	    .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR,
+	};
+	_vkGetAccelerationStructureBuildSizesKHR(device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &build_info, &primitive_count, &sizes);
+
+	create_address_buffer(sizes.accelerationStructureSize, VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, buffer,
+	                      memory);
+
+	VkAccelerationStructureCreateInfoKHR create_info = {
+	    .sType  = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR,
+	    .type   = type,
+	    .buffer = *buffer,
+	    .size   = sizes.accelerationStructureSize,
+	};
+	_vkCreateAccelerationStructureKHR(device, &create_info, NULL, structure);
+
+	VkBuffer       scratch_buffer;
+	VkDeviceMemory scratch_memory;
+	create_address_buffer(sizes.buildScratchSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &scratch_buffer, &scratch_memory);
+
+	build_info.dstAccelerationStructure  = *structure;
+	build_info.scratchData.deviceAddress = get_buffer_device_address(scratch_buffer);
+
+	VkAccelerationStructureBuildRangeInfoKHR        range_info = {.primitiveCount = primitive_count};
+	const VkAccelerationStructureBuildRangeInfoKHR *ranges[1]  = {&range_info};
+
+	VkCommandBufferAllocateInfo allocate_info = {
+	    .sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+	    .commandPool        = cmd_pool,
+	    .level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+	    .commandBufferCount = 1,
+	};
+	VkCommandBuffer build_commands;
+	vkAllocateCommandBuffers(device, &allocate_info, &build_commands);
+
+	VkCommandBufferBeginInfo begin_info = {
+	    .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+	};
+	vkBeginCommandBuffer(build_commands, &begin_info);
+	_vkCmdBuildAccelerationStructuresKHR(build_commands, 1, &build_info, ranges);
+	vkEndCommandBuffer(build_commands);
+
+	VkSubmitInfo submit_info = {
+	    .sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+	    .commandBufferCount = 1,
+	    .pCommandBuffers    = &build_commands,
+	};
+	VkFenceCreateInfo fence_info = {
+	    .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+	};
+	VkFence build_fence;
+	vkCreateFence(device, &fence_info, NULL, &build_fence);
+	vkQueueSubmit(queue, 1, &submit_info, build_fence);
+	vkWaitForFences(device, 1, &build_fence, VK_TRUE, 100000000000);
+	vkDestroyFence(device, build_fence, NULL);
+	vkFreeCommandBuffers(device, cmd_pool, 1, &build_commands);
+
+	VkAccelerationStructureDeviceAddressInfoKHR address_info = {
+	    .sType                 = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR,
+	    .accelerationStructure = *structure,
+	};
+	*handle = _vkGetAccelerationStructureDeviceAddressKHR(device, &address_info);
+
+	vkFreeMemory(device, scratch_memory, NULL);
+	vkDestroyBuffer(device, scratch_buffer, NULL);
 }
 
 void gpu_raytrace_acceleration_structure_build(gpu_acceleration_structure_t *accel) {
@@ -2723,415 +2850,65 @@ void gpu_raytrace_acceleration_structure_build(gpu_acceleration_structure_t *acc
 	// Bottom level
 	if (build_bottom) {
 		for (int i = 0; i < vb_count; ++i) {
-
-			uint32_t prim_count = ib[i]->count / 3;
-			uint32_t vert_count = vb[i]->count;
-
-			VkDeviceOrHostAddressConstKHR vertex_data_device_address = {0};
-			VkDeviceOrHostAddressConstKHR index_data_device_address  = {0};
-
-			vertex_data_device_address.deviceAddress = get_buffer_device_address(vb[i]->impl.buf);
-			index_data_device_address.deviceAddress  = get_buffer_device_address(ib[i]->impl.buf);
-
-			VkAccelerationStructureGeometryKHR acceleration_geometry = {
+			VkAccelerationStructureGeometryKHR geometry = {
 			    .sType                                       = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
 			    .flags                                       = VK_GEOMETRY_OPAQUE_BIT_KHR,
 			    .geometryType                                = VK_GEOMETRY_TYPE_TRIANGLES_KHR,
 			    .geometry.triangles.sType                    = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR,
 			    .geometry.triangles.vertexFormat             = VK_FORMAT_R16G16B16A16_SNORM,
-			    .geometry.triangles.vertexData.deviceAddress = vertex_data_device_address.deviceAddress,
+			    .geometry.triangles.vertexData.deviceAddress = get_buffer_device_address(vb[i]->impl.buf),
 			    .geometry.triangles.vertexStride             = vb[i]->stride,
 			    .geometry.triangles.maxVertex                = vb[i]->count,
 			    .geometry.triangles.indexType                = VK_INDEX_TYPE_UINT32,
-			    .geometry.triangles.indexData.deviceAddress  = index_data_device_address.deviceAddress,
+			    .geometry.triangles.indexData.deviceAddress  = get_buffer_device_address(ib[i]->impl.buf),
 			};
-
-			VkAccelerationStructureBuildGeometryInfoKHR acceleration_structure_build_geometry_info = {
-			    .sType         = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR,
-			    .type          = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR,
-			    .flags         = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR,
-			    .geometryCount = 1,
-			    .pGeometries   = &acceleration_geometry,
-			};
-
-			VkAccelerationStructureBuildSizesInfoKHR acceleration_build_sizes_info = {
-			    .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR,
-			};
-			_vkGetAccelerationStructureBuildSizesKHR(device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &acceleration_structure_build_geometry_info,
-			                                         &prim_count, &acceleration_build_sizes_info);
-
-			VkBufferCreateInfo buffer_create_info = {
-			    .sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-			    .size        = acceleration_build_sizes_info.accelerationStructureSize,
-			    .usage       = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-			    .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-			};
-			VkBuffer bottom_level_buffer = VK_NULL_HANDLE;
-			vkCreateBuffer(device, &buffer_create_info, NULL, &bottom_level_buffer);
-
-			VkMemoryRequirements memory_requirements2;
-			vkGetBufferMemoryRequirements(device, bottom_level_buffer, &memory_requirements2);
-
-			VkMemoryAllocateFlagsInfo memory_allocate_flags_info2 = {
-			    .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO,
-			    .flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT_KHR,
-			};
-
-			VkMemoryAllocateInfo memory_allocate_info = {
-			    .sType          = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-			    .pNext          = &memory_allocate_flags_info2,
-			    .allocationSize = memory_requirements2.size,
-			};
-			memory_allocate_info.memoryTypeIndex = memory_type_from_properties(memory_requirements2.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-			VkDeviceMemory bottom_level_mem;
-			vkAllocateMemory(device, &memory_allocate_info, NULL, &bottom_level_mem);
-			vkBindBufferMemory(device, bottom_level_buffer, bottom_level_mem, 0);
-
-			VkAccelerationStructureCreateInfoKHR acceleration_create_info = {
-			    .sType  = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR,
-			    .type   = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR,
-			    .buffer = bottom_level_buffer,
-			    .size   = acceleration_build_sizes_info.accelerationStructureSize,
-			};
-			_vkCreateAccelerationStructureKHR(device, &acceleration_create_info, NULL, &accel->impl.bottom_level_acceleration_structure[i]);
-
-			VkBuffer       scratch_buffer = VK_NULL_HANDLE;
-			VkDeviceMemory scratch_memory = VK_NULL_HANDLE;
-
-			buffer_create_info.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-			buffer_create_info.size        = acceleration_build_sizes_info.buildScratchSize;
-			buffer_create_info.usage       = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-			buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-			vkCreateBuffer(device, &buffer_create_info, NULL, &scratch_buffer);
-
-			VkMemoryRequirements memory_requirements;
-			vkGetBufferMemoryRequirements(device, scratch_buffer, &memory_requirements);
-
-			VkMemoryAllocateFlagsInfo memory_allocate_flags_info = {
-			    .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO,
-			    .flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT_KHR,
-			};
-
-			memory_allocate_info.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-			memory_allocate_info.pNext           = &memory_allocate_flags_info;
-			memory_allocate_info.allocationSize  = memory_requirements.size;
-			memory_allocate_info.memoryTypeIndex = memory_type_from_properties(memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-			vkAllocateMemory(device, &memory_allocate_info, NULL, &scratch_memory);
-			vkBindBufferMemory(device, scratch_buffer, scratch_memory, 0);
-
-			VkBufferDeviceAddressInfoKHR buffer_device_address_info = {
-			    .sType  = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
-			    .buffer = scratch_buffer,
-			};
-			uint64_t scratch_buffer_device_address = _vkGetBufferDeviceAddressKHR(device, &buffer_device_address_info);
-
-			VkAccelerationStructureBuildGeometryInfoKHR acceleration_build_geometry_info = {
-			    .sType                     = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR,
-			    .type                      = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR,
-			    .flags                     = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR,
-			    .mode                      = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR,
-			    .dstAccelerationStructure  = accel->impl.bottom_level_acceleration_structure[i],
-			    .geometryCount             = 1,
-			    .pGeometries               = &acceleration_geometry,
-			    .scratchData.deviceAddress = scratch_buffer_device_address,
-			};
-
-			VkAccelerationStructureBuildRangeInfoKHR acceleration_build_range_info = {
-			    .primitiveCount = prim_count,
-			};
-
-			const VkAccelerationStructureBuildRangeInfoKHR *acceleration_build_infos[1] = {&acceleration_build_range_info};
-
-			{
-				VkCommandBufferAllocateInfo cmd_buf_allocate_info = {
-				    .sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-				    .commandPool        = cmd_pool,
-				    .level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-				    .commandBufferCount = 1,
-				};
-
-				VkCommandBuffer command_buffer;
-				vkAllocateCommandBuffers(device, &cmd_buf_allocate_info, &command_buffer);
-
-				VkCommandBufferBeginInfo command_buffer_info = {
-				    .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-				};
-				vkBeginCommandBuffer(command_buffer, &command_buffer_info);
-
-				_vkCmdBuildAccelerationStructuresKHR = (void *)vkGetDeviceProcAddr(device, "vkCmdBuildAccelerationStructuresKHR");
-				_vkCmdBuildAccelerationStructuresKHR(command_buffer, 1, &acceleration_build_geometry_info, &acceleration_build_infos[0]);
-
-				vkEndCommandBuffer(command_buffer);
-
-				VkSubmitInfo submit_info = {
-				    .sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-				    .commandBufferCount = 1,
-				    .pCommandBuffers    = &command_buffer,
-				};
-
-				VkFenceCreateInfo fence_info = {
-				    .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-				};
-
-				VkFence fence;
-				vkCreateFence(device, &fence_info, NULL, &fence);
-
-				vkQueueSubmit(queue, 1, &submit_info, fence);
-				vkWaitForFences(device, 1, &fence, VK_TRUE, 100000000000);
-				vkDestroyFence(device, fence, NULL);
-				vkFreeCommandBuffers(device, cmd_pool, 1, &command_buffer);
-			}
-
-			VkAccelerationStructureDeviceAddressInfoKHR acceleration_device_address_info = {
-			    .sType                 = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR,
-			    .accelerationStructure = accel->impl.bottom_level_acceleration_structure[i],
-			};
-
-			accel->impl.bottom_level_acceleration_structure_handle[i] = _vkGetAccelerationStructureDeviceAddressKHR(device, &acceleration_device_address_info);
-
-			vkFreeMemory(device, scratch_memory, NULL);
-			vkDestroyBuffer(device, scratch_buffer, NULL);
-
-			accel->impl.bottom_level_buffer[i] = bottom_level_buffer;
-			accel->impl.bottom_level_mem[i]    = bottom_level_mem;
+			build_acceleration_structure(VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR, &geometry, ib[i]->count / 3,
+			                             &accel->impl.bottom_level_acceleration_structure[i], &accel->impl.bottom_level_acceleration_structure_handle[i],
+			                             &accel->impl.bottom_level_buffer[i], &accel->impl.bottom_level_mem[i]);
 		}
 	}
 
 	// Top level
+	create_address_buffer(instances_count * sizeof(VkAccelerationStructureInstanceKHR), VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR,
+	                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, &accel->impl.instances_buffer, &accel->impl.instances_mem);
 
-	{
-		VkBufferCreateInfo buf_info = {
-		    .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-		    .size  = instances_count * sizeof(VkAccelerationStructureInstanceKHR),
-		    .usage = VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR,
-		    .flags = 0,
-		};
+	void *data;
+	vkMapMemory(device, accel->impl.instances_mem, 0, instances_count * sizeof(VkAccelerationStructureInstanceKHR), 0, (void **)&data);
 
-		VkMemoryAllocateInfo mem_alloc = {0};
-		memset(&mem_alloc, 0, sizeof(VkMemoryAllocateInfo));
-		mem_alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	for (int i = 0; i < instances_count; ++i) {
+		VkTransformMatrixKHR               transform_matrix = {instances[i].m.m[0], instances[i].m.m[4], instances[i].m.m[8],  instances[i].m.m[12],
+		                                                       instances[i].m.m[1], instances[i].m.m[5], instances[i].m.m[9],  instances[i].m.m[13],
+		                                                       instances[i].m.m[2], instances[i].m.m[6], instances[i].m.m[10], instances[i].m.m[14]};
+		VkAccelerationStructureInstanceKHR instance         = {
+		            .transform = transform_matrix,
+        };
 
-		VkBuffer instances_buffer;
-		vkCreateBuffer(device, &buf_info, NULL, &instances_buffer);
+		instance.instanceCustomIndex = i;
 
-		VkMemoryRequirements mem_reqs = {0};
-		vkGetBufferMemoryRequirements(device, instances_buffer, &mem_reqs);
-
-		mem_alloc.allocationSize  = mem_reqs.size;
-		mem_alloc.memoryTypeIndex = memory_type_from_properties(mem_reqs.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
-
-		VkMemoryAllocateFlagsInfo memory_allocate_flags_info = {
-		    .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO,
-		    .flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT_KHR,
-		};
-		mem_alloc.pNext = &memory_allocate_flags_info;
-
-		VkDeviceMemory instances_mem;
-		vkAllocateMemory(device, &mem_alloc, NULL, &instances_mem);
-
-		vkBindBufferMemory(device, instances_buffer, instances_mem, 0);
-		void *data;
-		vkMapMemory(device, instances_mem, 0, instances_count * sizeof(VkAccelerationStructureInstanceKHR), 0, (void **)&data);
-
-		for (int i = 0; i < instances_count; ++i) {
-			VkTransformMatrixKHR               transform_matrix = {instances[i].m.m[0], instances[i].m.m[4], instances[i].m.m[8],  instances[i].m.m[12],
-			                                                       instances[i].m.m[1], instances[i].m.m[5], instances[i].m.m[9],  instances[i].m.m[13],
-			                                                       instances[i].m.m[2], instances[i].m.m[6], instances[i].m.m[10], instances[i].m.m[14]};
-			VkAccelerationStructureInstanceKHR instance         = {
-			            .transform = transform_matrix,
-            };
-
-			instance.instanceCustomIndex = i;
-
-			instance.mask                                   = 0xFF;
-			instance.instanceShaderBindingTableRecordOffset = 0;
-			instance.flags                                  = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
-			instance.accelerationStructureReference         = accel->impl.bottom_level_acceleration_structure_handle[instances[i].i];
-			memcpy(data + i * sizeof(VkAccelerationStructureInstanceKHR), &instance, sizeof(VkAccelerationStructureInstanceKHR));
-		}
-
-		vkUnmapMemory(device, instances_mem);
-
-		VkDeviceOrHostAddressConstKHR instance_data_device_address = {
-		    .deviceAddress = get_buffer_device_address(instances_buffer),
-		};
-
-		VkAccelerationStructureGeometryKHR acceleration_geometry = {
-		    .sType                                 = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
-		    .flags                                 = VK_GEOMETRY_OPAQUE_BIT_KHR,
-		    .geometryType                          = VK_GEOMETRY_TYPE_INSTANCES_KHR,
-		    .geometry.instances.sType              = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR,
-		    .geometry.instances.arrayOfPointers    = VK_FALSE,
-		    .geometry.instances.data.deviceAddress = instance_data_device_address.deviceAddress,
-		};
-
-		VkAccelerationStructureBuildGeometryInfoKHR acceleration_structure_build_geometry_info = {
-		    .sType         = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR,
-		    .type          = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR,
-		    .flags         = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR,
-		    .geometryCount = 1,
-		    .pGeometries   = &acceleration_geometry,
-		};
-
-		VkAccelerationStructureBuildSizesInfoKHR acceleration_build_sizes_info = {
-		    acceleration_build_sizes_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR,
-		};
-
-		uint32_t instance_count = instances_count;
-
-		_vkGetAccelerationStructureBuildSizesKHR(device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &acceleration_structure_build_geometry_info,
-		                                         &instance_count, &acceleration_build_sizes_info);
-
-		VkBufferCreateInfo buffer_create_info = {
-		    .sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-		    .size        = acceleration_build_sizes_info.accelerationStructureSize,
-		    .usage       = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-		    .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-		};
-		VkBuffer top_level_buffer = VK_NULL_HANDLE;
-		vkCreateBuffer(device, &buffer_create_info, NULL, &top_level_buffer);
-
-		VkMemoryRequirements memory_requirements2;
-		vkGetBufferMemoryRequirements(device, top_level_buffer, &memory_requirements2);
-
-		memory_allocate_flags_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO;
-		memory_allocate_flags_info.flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT_KHR;
-
-		VkMemoryAllocateInfo memory_allocate_info = {
-		    .sType          = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-		    .pNext          = &memory_allocate_flags_info,
-		    .allocationSize = memory_requirements2.size,
-		};
-		memory_allocate_info.memoryTypeIndex = memory_type_from_properties(memory_requirements2.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-		VkDeviceMemory top_level_mem;
-		vkAllocateMemory(device, &memory_allocate_info, NULL, &top_level_mem);
-		vkBindBufferMemory(device, top_level_buffer, top_level_mem, 0);
-
-		VkAccelerationStructureCreateInfoKHR acceleration_create_info = {
-		    .sType  = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR,
-		    .type   = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR,
-		    .buffer = top_level_buffer,
-		    .size   = acceleration_build_sizes_info.accelerationStructureSize,
-		};
-		_vkCreateAccelerationStructureKHR(device, &acceleration_create_info, NULL, &accel->impl.top_level_acceleration_structure);
-
-		VkBuffer       scratch_buffer = VK_NULL_HANDLE;
-		VkDeviceMemory scratch_memory = VK_NULL_HANDLE;
-
-		buffer_create_info.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-		buffer_create_info.size        = acceleration_build_sizes_info.buildScratchSize;
-		buffer_create_info.usage       = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-		buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-		vkCreateBuffer(device, &buffer_create_info, NULL, &scratch_buffer);
-
-		VkMemoryRequirements memory_requirements;
-		vkGetBufferMemoryRequirements(device, scratch_buffer, &memory_requirements);
-
-		memory_allocate_flags_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO;
-		memory_allocate_flags_info.flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT_KHR;
-
-		memory_allocate_info.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-		memory_allocate_info.pNext           = &memory_allocate_flags_info;
-		memory_allocate_info.allocationSize  = memory_requirements.size;
-		memory_allocate_info.memoryTypeIndex = memory_type_from_properties(memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-		vkAllocateMemory(device, &memory_allocate_info, NULL, &scratch_memory);
-		vkBindBufferMemory(device, scratch_buffer, scratch_memory, 0);
-
-		VkBufferDeviceAddressInfoKHR buffer_device_address_info = {
-		    .sType  = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
-		    .buffer = scratch_buffer,
-		};
-		uint64_t scratch_buffer_device_address = _vkGetBufferDeviceAddressKHR(device, &buffer_device_address_info);
-
-		VkAccelerationStructureBuildGeometryInfoKHR acceleration_build_geometry_info = {
-		    .sType                     = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR,
-		    .type                      = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR,
-		    .flags                     = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR,
-		    .mode                      = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR,
-		    .srcAccelerationStructure  = VK_NULL_HANDLE,
-		    .dstAccelerationStructure  = accel->impl.top_level_acceleration_structure,
-		    .geometryCount             = 1,
-		    .pGeometries               = &acceleration_geometry,
-		    .scratchData.deviceAddress = scratch_buffer_device_address,
-		};
-
-		VkAccelerationStructureBuildRangeInfoKHR acceleration_build_range_info = {
-		    .primitiveCount = instances_count,
-		};
-
-		const VkAccelerationStructureBuildRangeInfoKHR *acceleration_build_infos[1] = {&acceleration_build_range_info};
-
-		{
-			VkCommandBufferAllocateInfo cmd_buf_allocate_info = {
-			    .sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-			    .commandPool        = cmd_pool,
-			    .level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-			    .commandBufferCount = 1,
-			};
-
-			VkCommandBuffer command_buffer;
-			vkAllocateCommandBuffers(device, &cmd_buf_allocate_info, &command_buffer);
-
-			VkCommandBufferBeginInfo command_buffer_info = {
-			    .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-			};
-			vkBeginCommandBuffer(command_buffer, &command_buffer_info);
-
-			_vkCmdBuildAccelerationStructuresKHR = (void *)vkGetDeviceProcAddr(device, "vkCmdBuildAccelerationStructuresKHR");
-			_vkCmdBuildAccelerationStructuresKHR(command_buffer, 1, &acceleration_build_geometry_info, &acceleration_build_infos[0]);
-
-			vkEndCommandBuffer(command_buffer);
-
-			VkSubmitInfo submit_info = {
-			    .sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-			    .commandBufferCount = 1,
-			    .pCommandBuffers    = &command_buffer,
-			};
-
-			VkFenceCreateInfo fence_info = {
-			    .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-			};
-
-			VkFence fence;
-			vkCreateFence(device, &fence_info, NULL, &fence);
-			vkQueueSubmit(queue, 1, &submit_info, fence);
-			vkWaitForFences(device, 1, &fence, VK_TRUE, 100000000000);
-			vkDestroyFence(device, fence, NULL);
-			vkFreeCommandBuffers(device, cmd_pool, 1, &command_buffer);
-		}
-
-		VkAccelerationStructureDeviceAddressInfoKHR acceleration_device_address_info = {
-		    .sType                 = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR,
-		    .accelerationStructure = accel->impl.top_level_acceleration_structure,
-		};
-
-		accel->impl.top_level_acceleration_structure_handle = _vkGetAccelerationStructureDeviceAddressKHR(device, &acceleration_device_address_info);
-
-		vkFreeMemory(device, scratch_memory, NULL);
-		vkDestroyBuffer(device, scratch_buffer, NULL);
-
-		accel->impl.top_level_buffer = top_level_buffer;
-		accel->impl.top_level_mem    = top_level_mem;
-		accel->impl.instances_buffer = instances_buffer;
-		accel->impl.instances_mem    = instances_mem;
+		instance.mask                                   = 0xFF;
+		instance.instanceShaderBindingTableRecordOffset = 0;
+		instance.flags                                  = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
+		instance.accelerationStructureReference         = accel->impl.bottom_level_acceleration_structure_handle[instances[i].i];
+		memcpy(data + i * sizeof(VkAccelerationStructureInstanceKHR), &instance, sizeof(VkAccelerationStructureInstanceKHR));
 	}
+
+	vkUnmapMemory(device, accel->impl.instances_mem);
+
+	VkAccelerationStructureGeometryKHR geometry = {
+	    .sType                                 = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
+	    .flags                                 = VK_GEOMETRY_OPAQUE_BIT_KHR,
+	    .geometryType                          = VK_GEOMETRY_TYPE_INSTANCES_KHR,
+	    .geometry.instances.sType              = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR,
+	    .geometry.instances.arrayOfPointers    = VK_FALSE,
+	    .geometry.instances.data.deviceAddress = get_buffer_device_address(accel->impl.instances_buffer),
+	};
+	build_acceleration_structure(VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR, &geometry, instances_count, &accel->impl.top_level_acceleration_structure,
+	                             &accel->impl.top_level_acceleration_structure_handle, &accel->impl.top_level_buffer, &accel->impl.top_level_mem);
 
 	create_instance_data();
 }
 
-void gpu_raytrace_acceleration_structure_destroy(gpu_acceleration_structure_t *accel) {
-	// _vkDestroyAccelerationStructureKHR = (void *)vkGetDeviceProcAddr(device, "vkDestroyAccelerationStructureKHR");
-	// for (int i = 0; i < vb_count; ++i) {
-	// 	_vkDestroyAccelerationStructureKHR(device, accel->impl.bottom_level_acceleration_structure[i], NULL);
-	// 	vkFreeMemory(device, accel->impl.bottom_level_mem[i], NULL);
-	// 	vkDestroyBuffer(device, accel->impl.bottom_level_buffer[i], NULL);
-	// }
-	// _vkDestroyAccelerationStructureKHR(device, accel->impl.top_level_acceleration_structure, NULL);
-	// vkFreeMemory(device, accel->impl.top_level_mem, NULL);
-	// vkDestroyBuffer(device, accel->impl.top_level_buffer, NULL);
-	// vkFreeMemory(device, accel->impl.instances_mem, NULL);
-	// vkDestroyBuffer(device, accel->impl.instances_buffer, NULL);
-}
+void gpu_raytrace_acceleration_structure_destroy(gpu_acceleration_structure_t *accel) {}
 
 void gpu_raytrace_set_textures(gpu_texture_t *_texpaint0, gpu_texture_t *_texpaint1, gpu_texture_t *_texpaint2, gpu_texture_t *_texenv,
                                gpu_texture_t *_texsobol, gpu_texture_t *_texscramble, gpu_texture_t *_texrank, gpu_texture_t *_texenv_cdf) {

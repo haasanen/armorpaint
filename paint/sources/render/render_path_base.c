@@ -7,7 +7,107 @@ render_target_t_array_t *render_path_base_bloom_mipmaps;
 void render_path_base_init() {
 	pipes_init();
 	const_data_create_screen_aligned_data();
+	const_data_create_skydome_data();
 	render_path_base_super_sample = g_config->rp_supersample;
+
+	{
+		render_target_t *t = render_target_create();
+		t->name            = "main";
+		t->width           = 0;
+		t->height          = 0;
+		t->format          = "D32";
+		t->scale           = render_path_base_get_super_sampling();
+		render_path_create_render_target(t);
+	}
+	{
+		render_target_t *t = render_target_create();
+		t->name            = "gbuffer0";
+		t->width           = 0;
+		t->height          = 0;
+		t->format          = "RGBA64";
+		t->scale           = render_path_base_get_super_sampling();
+		render_path_create_render_target(t);
+	}
+	{
+		render_target_t *t = render_target_create();
+		t->name            = "gbuffer1";
+		t->width           = 0;
+		t->height          = 0;
+		t->format          = "RGBA64";
+		t->scale           = render_path_base_get_super_sampling();
+		render_path_create_render_target(t);
+	}
+	{
+		render_target_t *t = render_target_create();
+		t->name            = "gbuffer2";
+		t->width           = 0;
+		t->height          = 0;
+		t->format          = "RGBA64";
+		t->scale           = render_path_base_get_super_sampling();
+		render_path_create_render_target(t);
+	}
+	{
+		render_target_t *t = render_target_create();
+		t->name            = "buf";
+		t->width           = 0;
+		t->height          = 0;
+		t->format          = "RGBA64";
+		t->scale           = render_path_base_get_super_sampling();
+		render_path_create_render_target(t);
+	}
+	{
+		render_target_t *t = render_target_create();
+		t->name            = "last";
+		t->width           = 0;
+		t->height          = 0;
+		t->format          = "RGBA64";
+		t->scale           = render_path_base_get_super_sampling();
+		render_path_create_render_target(t);
+	}
+	{
+		render_target_t *t = render_target_create();
+		t->name            = "empty_white";
+		t->width           = 1;
+		t->height          = 1;
+		t->format          = "R8";
+		buffer_t *b        = buffer_create(1);
+		buffer_set_u8(b, 0, 255);
+		t->_image = gpu_create_texture_from_bytes(b, t->width, t->height, GPU_TEXTURE_FORMAT_R8);
+		array_free(b);
+		free(b);
+		any_map_set(render_path_render_targets, t->name, t);
+	}
+	{
+		render_target_t *t = render_target_create();
+		t->name            = "empty_black";
+		t->width           = 1;
+		t->height          = 1;
+		t->format          = "RGBA32";
+		buffer_t *b        = buffer_create(4);
+		t->_image          = gpu_create_texture_from_bytes(b, t->width, t->height, GPU_TEXTURE_FORMAT_RGBA32);
+		array_free(b);
+		free(b);
+		any_map_set(render_path_render_targets, t->name, t);
+	}
+
+	if (g_config->rp_ssao > 0.0) {
+		render_path_base_init_ssao();
+	}
+
+	render_path_load_shader("Scene/world_pass/world_pass");
+	render_path_load_shader("Scene/deferred_light/deferred_light");
+	render_path_load_shader("Scene/compositor_pass/compositor_pass");
+	render_path_load_shader("Scene/copy_pass/copy_pass");
+	render_path_load_shader("Scene/copy_pass/copyR8_pass");
+	render_path_load_shader("Scene/copy_pass/copyRGBA64_pass");
+	render_path_load_shader("Scene/copy_pass/copyRGBA128_pass");
+	render_path_load_shader("Scene/taa_pass/taa_pass");
+	render_path_load_shader("Scene/supersample_resolve/supersample_resolve");
+	render_path_load_shader("Scene/supersample_resolve/supersample_resolveRGBA64");
+
+	render_path_paint_init();
+	render_path_preview_init();
+	render_path_raytrace_init();
 }
 
 void render_path_base_apply_config() {
@@ -132,6 +232,14 @@ void render_path_base_commands(void (*draw_commands)(void)) {
 
 	if (viewport_recording) {
 		gpu_framebuffer_redirect = viewport_video_frame;
+	}
+
+	gpu_vertex_textures = false;
+	for (i32 i = 0; i < g_project->_->layers->length; ++i) {
+		slot_layer_t *l = g_project->_->layers->buffer[i];
+		if (l->texpaint_sculpt != NULL) {
+			gpu_vertex_textures = true;
+		}
 	}
 
 	render_path_base_begin();
@@ -285,9 +393,13 @@ void render_path_base_draw_ssao() {
 	}
 }
 
+bool render_path_base_gbuffer_uv() {
+	return !args_player || g_project->_->layers->length > 1;
+}
+
 void render_path_base_draw_deferred_light() {
-	render_path_set_target("buf", NULL, NULL, GPU_CLEAR_NONE, 0, 0.0);
-	render_path_bind_target("main", "gbufferD");
+	bool merge = !render_pass_any();
+	render_path_set_target("buf", NULL, "main", GPU_CLEAR_DONT_LOAD_COLOR | (merge && args_player ? GPU_CLEAR_DONT_STORE_DEPTH : 0), 0, 0.0);
 	render_path_bind_target("gbuffer0", "gbuffer0");
 	render_path_bind_target("gbuffer1", "gbuffer1");
 	bool ssao = g_config->rp_ssao > 0.0 && g_context->camera_type == CAMERA_TYPE_PERSPECTIVE;
@@ -298,6 +410,11 @@ void render_path_base_draw_deferred_light() {
 		render_path_bind_target("empty_white", "ssaotex");
 	}
 
+	if (merge) {
+		render_path_draw_shader_keep_target("Scene/deferred_light/deferred_light");
+		render_path_draw_skydome("Scene/world_pass/world_pass");
+		return;
+	}
 	render_path_draw_shader("Scene/deferred_light/deferred_light");
 	render_pass_draw(RENDER_PASS_LIGHT, "buf");
 
@@ -320,11 +437,14 @@ void render_path_base_draw_deferred_light() {
 // 	render_path_draw_shader("Scene/histogram_pass/histogram_pass");
 // }
 
+static gpu_texture_t *render_path_base_taa_history = NULL;
+
 void render_path_base_draw_taa(char *bufa, char *bufb) {
-	render_path_set_target(bufb, NULL, NULL, GPU_CLEAR_NONE, 0, 0.0);
+	render_path_set_target(bufb, NULL, NULL, GPU_CLEAR_DONT_LOAD_COLOR, 0, 0.0);
 	render_path_bind_target(bufa, "tex");
 
-	bool skip_taa = g_context->split_view;
+	render_target_t *last     = any_map_get(render_path_render_targets, "last");
+	bool             skip_taa = g_context->split_view || last->_image != render_path_base_taa_history;
 	if (skip_taa) {
 		render_path_draw_shader("Scene/copy_pass/copyRGBA64_pass");
 	}
@@ -333,7 +453,7 @@ void render_path_base_draw_taa(char *bufa, char *bufb) {
 		render_path_draw_shader("Scene/taa_pass/taa_pass");
 	}
 
-	render_path_set_target("", NULL, NULL, GPU_CLEAR_NONE, 0, 0.0);
+	render_path_set_target("", NULL, NULL, args_player ? GPU_CLEAR_DONT_LOAD_COLOR : GPU_CLEAR_NONE, 0, 0.0);
 	render_path_bind_target(bufb, "tex");
 	if (render_path_base_ssaa4()) {
 		render_path_draw_shader("Scene/supersample_resolve/supersample_resolveRGBA64");
@@ -343,6 +463,7 @@ void render_path_base_draw_taa(char *bufa, char *bufb) {
 	}
 
 	render_path_base_swap_buf(bufa);
+	render_path_base_taa_history = ((render_target_t *)any_map_get(render_path_render_targets, "last"))->_image;
 }
 
 void render_path_base_swap_buf(char *bufa) {
@@ -535,20 +656,22 @@ void render_path_base_draw_outline() {
 }
 
 void render_path_base_draw_gbuffer() {
-
-	if (g_project->_->translucency) {
-		render_path_set_target("gbuffer0", NULL, NULL, GPU_CLEAR_COLOR, 0x00000000, 0.0);
-		render_path_set_target("gbuffer1", NULL, NULL, GPU_CLEAR_COLOR, 0x00000000, 0.0);
-	}
-
-	render_path_set_target("gbuffer0", NULL, "main", GPU_CLEAR_DEPTH, 0, 1.0); // Only clear gbuffer0
 	string_array_t *additional = any_array_create_from_raw_tmp(
 	    (void *[]){
 	        "gbuffer1",
 	        "gbuffer2",
 	    },
-	    2);
-	render_path_set_target("gbuffer0", additional, "main", GPU_CLEAR_NONE, 0, 0.0);
+	    render_path_base_gbuffer_uv() ? 2 : 1);
+
+	if (!g_project->_->translucency) {
+		render_path_set_target("gbuffer0", additional, "main", GPU_CLEAR_COLOR | GPU_CLEAR_DEPTH, 0x00000000, 1.0);
+	}
+	else {
+		render_path_set_target("gbuffer0", NULL, NULL, GPU_CLEAR_COLOR, 0x00000000, 0.0);
+		render_path_set_target("gbuffer1", NULL, NULL, GPU_CLEAR_COLOR, 0x00000000, 0.0);
+		render_path_set_target("gbuffer0", NULL, "main", GPU_CLEAR_DEPTH, 0, 1.0); // Only clear gbuffer0
+		render_path_set_target("gbuffer0", additional, "main", GPU_CLEAR_NONE, 0, 0.0);
+	}
 	render_path_paint_bind_layers();
 	render_path_base_draw_layer_pass(0);
 	render_path_paint_unbind_layers();

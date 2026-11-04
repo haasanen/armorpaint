@@ -28,6 +28,17 @@ static bool                        resized = false;
 static void                       *readback_buffer;
 static int                         readback_buffer_size = 0;
 static bool                        linear_sampling      = true;
+static id<MTLCommandBuffer>        frames_pending[GPU_FRAMES_IN_FLIGHT];
+static bool                        discard_depth_store = false;
+
+static void wait_for_frames() {
+	for (int i = 0; i < GPU_FRAMES_IN_FLIGHT; ++i) {
+		if (frames_pending[i] != nil) {
+			[frames_pending[i] waitUntilCompleted];
+			frames_pending[i] = nil;
+		}
+	}
+}
 
 static MTLBlendFactor convert_blending_factor(gpu_blend_t factor) {
 	switch (factor) {
@@ -54,6 +65,8 @@ static MTLCompareFunction convert_compare_mode(gpu_compare_mode_t compare) {
 		return MTLCompareFunctionNever;
 	case GPU_COMPARE_MODE_EQUAL:
 		return MTLCompareFunctionEqual;
+	case GPU_COMPARE_MODE_GREATER:
+		return MTLCompareFunctionGreater;
 	case GPU_COMPARE_MODE_LESS:
 		return MTLCompareFunctionLess;
 	}
@@ -110,6 +123,7 @@ void gpu_render_target_init2(gpu_texture_t *target, uint32_t width, uint32_t hei
 		descriptor.resourceOptions       = MTLResourceStorageModePrivate;
 		target->impl._tex                = (__bridge_retained void *)[device newTextureWithDescriptor:descriptor];
 		if (target->impl._tex == nil) {
+			wait_for_frames();
 			gpu_cleanup();
 			target->impl._tex = (__bridge_retained void *)[device newTextureWithDescriptor:descriptor];
 		}
@@ -120,8 +134,18 @@ void gpu_resize_internal(int width, int height) {
 	resized = true;
 }
 
-static void next_drawable() {
-	CAMetalLayer *layer                       = get_metal_layer();
+void gpu_acquire_framebuffer() {
+	if (drawable != nil) {
+		return;
+	}
+	CAMetalLayer *layer = get_metal_layer();
+	if (resized) {
+		layer.drawableSize = CGSizeMake(iron_window_width(), iron_window_height());
+		for (int i = 0; i < GPU_FRAMEBUFFER_COUNT; ++i) {
+			gpu_render_target_init2(&framebuffers[i], iron_window_width(), iron_window_height(), GPU_TEXTURE_FORMAT_RGBA32, i);
+		}
+		resized = false;
+	}
 	drawable                                  = [layer nextDrawable];
 	framebuffers[framebuffer_index].impl._tex = (__bridge void *)drawable.texture;
 }
@@ -172,7 +196,6 @@ void gpu_init_internal(int depth_buffer_bits, bool vsync) {
 	argument_buffer      = [device newBufferWithLength:(argument_buffer_step * GPU_CONSTANT_BUFFER_MULTIPLE) options:MTLResourceStorageModeShared];
 
 	gpu_create_framebuffers(depth_buffer_bits);
-	next_drawable();
 }
 
 void gpu_begin_internal(gpu_clear_t flags, unsigned color, float depth) {
@@ -187,7 +210,7 @@ void gpu_begin_internal(gpu_clear_t flags, unsigned color, float depth) {
 			render_pass_desc.colorAttachments[i].clearColor  = MTLClearColorMake(red, green, blue, alpha);
 		}
 		else {
-			render_pass_desc.colorAttachments[i].loadAction  = MTLLoadActionLoad;
+			render_pass_desc.colorAttachments[i].loadAction  = (flags & GPU_CLEAR_DONT_LOAD_COLOR) ? MTLLoadActionDontCare : MTLLoadActionLoad;
 			render_pass_desc.colorAttachments[i].storeAction = MTLStoreActionStore;
 			render_pass_desc.colorAttachments[i].clearColor  = MTLClearColorMake(0.0, 0.0, 0.0, 1.0);
 		}
@@ -208,6 +231,11 @@ void gpu_begin_internal(gpu_clear_t flags, unsigned color, float depth) {
 		render_pass_desc.depthAttachment.storeAction = MTLStoreActionStore;
 	}
 
+	discard_depth_store = current_depth_buffer != NULL && (flags & GPU_CLEAR_DONT_STORE_DEPTH);
+	if (discard_depth_store) {
+		render_pass_desc.depthAttachment.storeAction = MTLStoreActionUnknown;
+	}
+
 	id<MTLCommandQueue> queue = get_metal_queue();
 
 	if (command_buffer == nil) {
@@ -219,6 +247,8 @@ void gpu_begin_internal(gpu_clear_t flags, unsigned color, float depth) {
 	current_viewport.originY = 0;
 	current_viewport.width   = current_render_targets[0]->width;
 	current_viewport.height  = current_render_targets[0]->height;
+	current_viewport.znear   = 0.0;
+	current_viewport.zfar    = 1.0;
 	current_scissor.x        = 0;
 	current_scissor.y        = 0;
 	current_scissor.width    = current_render_targets[0]->width;
@@ -226,17 +256,24 @@ void gpu_begin_internal(gpu_clear_t flags, unsigned color, float depth) {
 }
 
 void gpu_end_internal() {
+	if (discard_depth_store) {
+		[command_encoder setDepthStoreAction:MTLStoreActionDontCare];
+	}
 	[command_encoder endEncoding];
 	current_render_targets_count = 0;
 }
 
 void gpu_execute_and_wait() {
 	if (gpu_in_use) {
+		if (discard_depth_store) {
+			[command_encoder setDepthStoreAction:MTLStoreActionStore];
+		}
 		[command_encoder endEncoding];
 	}
 
 	[command_buffer commit];
 	[command_buffer waitUntilCompleted];
+	wait_for_frames();
 	id<MTLCommandQueue> queue = get_metal_queue();
 	command_buffer            = [queue commandBuffer];
 
@@ -260,25 +297,28 @@ void gpu_execute_and_wait() {
 }
 
 void gpu_present_internal() {
-	[command_buffer presentDrawable:drawable];
+	if (drawable != nil) {
+		[command_buffer presentDrawable:drawable];
+	}
 	[command_buffer commit];
-	[command_buffer waitUntilCompleted];
+	frames_pending[gpu_frame_index] = command_buffer;
 
-	drawable        = nil;
-	command_buffer  = nil;
-	command_encoder = nil;
-
-	if (resized) {
-		CAMetalLayer *layer = get_metal_layer();
-		layer.drawableSize  = CGSizeMake(iron_window_width(), iron_window_height());
-		for (int i = 0; i < GPU_FRAMEBUFFER_COUNT; ++i) {
-			// gpu_texture_destroy_internal(&framebuffers[i]);
-			gpu_render_target_init2(&framebuffers[i], iron_window_width(), iron_window_height(), GPU_TEXTURE_FORMAT_RGBA32, i);
-		}
-		resized = false;
+	if (gpu_cleanup_pending()) {
+		wait_for_frames();
 	}
 
-	next_drawable();
+	drawable                                  = nil;
+	framebuffers[framebuffer_index].impl._tex = NULL;
+	command_buffer                            = nil;
+	command_encoder                           = nil;
+
+	gpu_frame_index = (gpu_frame_index + 1) % GPU_FRAMES_IN_FLIGHT;
+	if (frames_pending[gpu_frame_index] != nil) {
+		[frames_pending[gpu_frame_index] waitUntilCompleted];
+		frames_pending[gpu_frame_index] = nil;
+	}
+
+	gpu_acquire_framebuffer();
 }
 
 void gpu_barrier(gpu_texture_t *render_target, gpu_texture_state_t state_after) {}
@@ -292,7 +332,10 @@ void gpu_draw_internal() {
 	                            indexCount:current_ib->count
 	                             indexType:MTLIndexTypeUInt32
 	                           indexBuffer:index_buffer
-	                     indexBufferOffset:0];
+	                     indexBufferOffset:0
+	                         instanceCount:1
+	                            baseVertex:current_vb->start
+	                          baseInstance:0];
 }
 
 void gpu_viewport(int x, int y, int width, int height) {
@@ -300,8 +343,8 @@ void gpu_viewport(int x, int y, int width, int height) {
 	current_viewport.originY = y;
 	current_viewport.width   = width;
 	current_viewport.height  = height;
-	current_viewport.znear   = 0.1;
-	current_viewport.zfar    = 100.0;
+	current_viewport.znear   = 0.0;
+	current_viewport.zfar    = 1.0;
 	[command_encoder setViewport:current_viewport];
 }
 
@@ -650,6 +693,7 @@ void gpu_texture_init_from_bytes(gpu_texture_t *texture, void *data, uint32_t wi
 	id<MTLDevice>  device = get_metal_device();
 	id<MTLTexture> tex    = [device newTextureWithDescriptor:descriptor];
 	if (tex == nil) {
+		wait_for_frames();
 		gpu_cleanup();
 #ifdef WITH_BC7
 		if (data != original_data) {
@@ -688,7 +732,9 @@ void gpu_render_target_init(gpu_texture_t *target, uint32_t width, uint32_t heig
 }
 
 void gpu_vertex_buffer_init(gpu_buffer_t *buffer, uint32_t count, gpu_vertex_structure_t *structure) {
-	buffer->count = count;
+	buffer->count     = count;
+	buffer->start     = 0;
+	buffer->cpu_write = false;
 	for (int i = 0; i < structure->size; ++i) {
 		gpu_vertex_element_t element = structure->elements[i];
 		buffer->stride += gpu_vertex_data_size(element.data);
@@ -700,6 +746,7 @@ void gpu_vertex_buffer_init(gpu_buffer_t *buffer, uint32_t count, gpu_vertex_str
 
 	id<MTLBuffer> buf = [device newBufferWithLength:gpu_buffer_alloc_size(count, buffer->stride) options:options];
 	if (buf == nil) {
+		wait_for_frames();
 		gpu_cleanup();
 		buf = [device newBufferWithLength:gpu_buffer_alloc_size(count, buffer->stride) options:options];
 	}
@@ -707,6 +754,9 @@ void gpu_vertex_buffer_init(gpu_buffer_t *buffer, uint32_t count, gpu_vertex_str
 }
 
 void *gpu_vertex_buffer_lock(gpu_buffer_t *buffer) {
+	if (!buffer->cpu_write) {
+		wait_for_frames();
+	}
 	id<MTLBuffer> buf = (__bridge id<MTLBuffer>)buffer->impl.metal_buffer;
 	return [buf contents];
 }
@@ -724,12 +774,14 @@ void gpu_index_buffer_init(gpu_buffer_t *buffer, uint32_t count) {
 
 	buffer->impl.metal_buffer = (__bridge_retained void *)[device newBufferWithLength:gpu_buffer_alloc_size(count, sizeof(uint32_t)) options:options];
 	if (buffer->impl.metal_buffer == nil) {
+		wait_for_frames();
 		gpu_cleanup();
 		buffer->impl.metal_buffer = (__bridge_retained void *)[device newBufferWithLength:gpu_buffer_alloc_size(count, sizeof(uint32_t)) options:options];
 	}
 }
 
 void *gpu_index_buffer_lock(gpu_buffer_t *buffer) {
+	wait_for_frames();
 	id<MTLBuffer> buf = (__bridge id<MTLBuffer>)buffer->impl.metal_buffer;
 	return [buf contents];
 }
@@ -924,6 +976,7 @@ void _gpu_raytrace_acceleration_structure_destroy_top(gpu_acceleration_structure
 }
 
 void gpu_raytrace_acceleration_structure_build(gpu_acceleration_structure_t *accel) {
+	gpu_execute_and_wait();
 
 	bool build_bottom = false;
 	for (int i = 0; i < GPU_RAYTRACE_MAX_OBJECTS; ++i) {

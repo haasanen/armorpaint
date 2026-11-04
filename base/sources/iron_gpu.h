@@ -21,18 +21,26 @@
 #define GPU_MAX_TEXTURES             16
 #define GPU_CONSTANT_BUFFER_SIZE     512
 #define GPU_CONSTANT_BUFFER_MULTIPLE 2048
-#ifdef IRON_ANDROID
-#define GPU_FRAMEBUFFER_COUNT 7
+#ifdef IRON_VULKAN
+#define GPU_FRAMEBUFFER_COUNT 16
 #elif defined(IRON_WASM)
 #define GPU_FRAMEBUFFER_COUNT 1
 #else
 #define GPU_FRAMEBUFFER_COUNT 3
 #endif
 
+#if defined(IRON_VULKAN) || defined(IRON_METAL) || defined(IRON_DIRECT3D12)
+#define GPU_FRAMES_IN_FLIGHT 2
+#else
+#define GPU_FRAMES_IN_FLIGHT 1
+#endif
+
 typedef enum {
-	GPU_CLEAR_NONE  = 0,
-	GPU_CLEAR_COLOR = 1,
-	GPU_CLEAR_DEPTH = 2,
+	GPU_CLEAR_NONE             = 0,
+	GPU_CLEAR_COLOR            = 1,
+	GPU_CLEAR_DEPTH            = 2,
+	GPU_CLEAR_DONT_LOAD_COLOR  = 4,
+	GPU_CLEAR_DONT_STORE_DEPTH = 8,
 } gpu_clear_t;
 
 typedef enum {
@@ -87,7 +95,8 @@ typedef enum {
 	GPU_COMPARE_MODE_ALWAYS,
 	GPU_COMPARE_MODE_NEVER,
 	GPU_COMPARE_MODE_LESS,
-	GPU_COMPARE_MODE_EQUAL
+	GPU_COMPARE_MODE_EQUAL,
+	GPU_COMPARE_MODE_GREATER
 } gpu_compare_mode_t;
 
 typedef struct gpu_texture {
@@ -106,6 +115,7 @@ typedef struct gpu_buffer {
 	uint8_t          *data; // constant buffer data
 	bool              cpu_write;
 	uint32_t          version;
+	uint32_t          start;
 	gpu_buffer_impl_t impl;
 } gpu_buffer_t;
 
@@ -165,6 +175,7 @@ void gpu_end_internal(void);
 void gpu_execute_and_wait(void);
 void gpu_cleanup(void);
 bool gpu_cleanup_pending(void);
+void gpu_acquire_framebuffer(void);
 void gpu_present(void);
 void gpu_present_internal(void);
 void gpu_barrier(gpu_texture_t *render_target, gpu_texture_state_t state_after);
@@ -269,6 +280,8 @@ extern gpu_texture_t  *current_depth_buffer;
 extern gpu_pipeline_t *current_pipeline;
 extern uint32_t        constant_buffer_index;
 extern gpu_texture_t   framebuffers[GPU_FRAMEBUFFER_COUNT];
+extern int             gpu_frame_index;
+extern bool            gpu_vertex_textures;
 extern gpu_texture_t   framebuffer_depth;
 extern gpu_texture_t  *gpu_framebuffer_redirect;
 extern uint32_t        framebuffer_index;
