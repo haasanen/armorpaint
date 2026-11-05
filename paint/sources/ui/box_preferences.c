@@ -49,8 +49,10 @@ void box_preferences_interface_tab_restore_menu_import_on_next_frame(config_t *r
 
 void box_preferences_interface_tab_restore_menu_import(char *path) {
 	buffer_t *b   = data_get_blob(path);
-	config_t *raw = json_parse(sys_buffer_to_string(b));
-	sys_notify_on_next_frame(&box_preferences_interface_tab_restore_menu_import_on_next_frame, raw);
+	config_t *raw = config_from_json(sys_buffer_to_string(b));
+	if (raw != NULL) {
+		sys_notify_on_next_frame(&box_preferences_interface_tab_restore_menu_import_on_next_frame, raw);
+	}
 }
 
 void box_preferences_interface_tab_restore_menu_confirm(void *_) {
@@ -430,6 +432,14 @@ void box_preferences_usage_tab() {
 	ui_slider(&g_config->brush_alpha_discard, tr("Alpha Discard"), 0.0, 1.0, true, 100.0, true, UI_ALIGN_RIGHT, true);
 	if (ui_item_changed()) {
 		make_material_parse_paint_material(true);
+	}
+
+	ui_check(&g_config->pixel_snap, tr("Pixel Snap"), "");
+	if (ui_item_changed()) {
+		make_material_parse_paint_material(true);
+	}
+	if (g_ui->is_hovered) {
+		ui_tooltip(tr("Snap painting to texture pixels, a radius of 0.01 paints 1 pixel"));
 	}
 }
 

@@ -71,8 +71,10 @@ void context_init() {
 	g_context->uvx_picked                   = 0.0;
 	g_context->uvy_picked                   = 0.0;
 	g_context->picker_select_material       = false;
-	g_context->picker_paint_mask            = false;
-	g_context->picker_viewport_mask         = false;
+	g_context->picker_material_mask         = false;
+	g_context->picker_color_mask            = false;
+	g_context->picker_color_mask_tolerance  = 0.0;
+	g_context->picker_hide_other_materials  = false;
 	g_context->pick_pos_nor_tex             = false;
 	g_context->pick_object_id               = false;
 	g_context->posx_picked                  = 0.0;
@@ -85,6 +87,7 @@ void context_init() {
 	g_context->draw_texels                  = false;
 	g_context->colorid                      = 0;
 	g_context->colorid_picked               = false;
+	g_context->colorid_picked_color         = 0xff000000;
 	g_context->layers_export                = EXPORT_MODE_VISIBLE;
 	g_context->decal_preview                = false;
 	g_context->decal_x                      = 0.0;
@@ -405,6 +408,10 @@ bool context_in_2d_view(view_2d_type_t type) {
 
 bool context_in_nodes() {
 	return ui_nodes_show && mouse_x > ui_nodes_wx && mouse_x < ui_nodes_wx + ui_nodes_ww && mouse_y > ui_nodes_wy && mouse_y < ui_nodes_wy + ui_nodes_wh;
+}
+
+bool context_is_pixel_snap() {
+	return g_config->pixel_snap && !context_is_decal() && !slot_layer_is_path(g_context->layer);
 }
 
 bool context_is_decal() {

@@ -8,6 +8,76 @@ void ui_header_init() {
 	ui_header_split_handle->layout = UI_LAYOUT_HORIZONTAL;
 }
 
+static bool ui_header_is_horizontal() {
+	return g_ui->current_window != NULL && g_ui->current_window->layout == UI_LAYOUT_HORIZONTAL;
+}
+
+static void ui_header_pressure_row() {
+	if (pen_connected && !ui_header_is_horizontal()) {
+		f32 button = UI_ELEMENT_H() / (f32)g_ui->_w;
+		ui_row(f32_array_create_from_raw_tmp((f32[]){1.0 - button, button}, 2));
+	}
+}
+
+static void ui_header_pressure_seam(i32 x, i32 y, i32 w, i32 h, u32 color, bool shadows) {
+	draw_set_color(color);
+	draw_filled_rect(x, y, w, h);
+	if (shadows) {
+		draw_set_color(color + 0x00080808);
+		draw_filled_rect(x, y, w, 1);
+		draw_set_color(color + 0x00030303);
+		draw_filled_rect(x, y + h - 1, w, 1);
+	}
+}
+
+static void ui_header_pressure_toggle(bool *value) {
+	if (!pen_connected) {
+		return;
+	}
+	i32  _w              = g_ui->_w;
+	i32  _BUTTON_COL     = g_theme->BUTTON_COL;
+	i32  _HOVER_COL      = g_theme->HOVER_COL;
+	i32  _FILL_BUTTON_BG = g_theme->FILL_BUTTON_BG;
+	bool horizontal      = ui_header_is_horizontal();
+	if (horizontal) {
+		g_ui->_x -= UI_ELEMENT_OFFSET();
+		g_ui->_w = UI_ELEMENT_H();
+	}
+	g_theme->FILL_BUTTON_BG = true;
+	g_theme->BUTTON_COL     = *value ? g_theme->HIGHLIGHT_COL : g_theme->PRESSED_COL;
+	if (*value) {
+		g_theme->HOVER_COL = g_theme->HIGHLIGHT_COL;
+	}
+
+	i32  offset = g_ui->button_offset_y;
+	i32  corner = g_ui->filled_round_corner_image.width;
+	i32  seam_x = g_ui->_x;
+	i32  seam_y = g_ui->_y + g_ui->button_offset_y;
+	bool hover  = ui_get_hover(UI_ELEMENT_H());
+	u32  seam   = hover && g_ui->input_down ? g_theme->PRESSED_COL : hover ? g_theme->HOVER_COL : g_theme->BUTTON_COL;
+
+	if (ui_icon_button("", ICON_EDIT, UI_ALIGN_CENTER)) {
+		*value                    = !*value;
+		g_ui->changed             = true;
+		ui_header_handle->redraws = 2;
+		config_save();
+	}
+	if (g_ui->is_hovered) {
+		ui_tooltip(tr("Pressure controls"));
+	}
+
+	ui_header_pressure_seam(seam_x - offset - corner, seam_y, offset + corner, UI_BUTTON_H(), g_theme->PRESSED_COL, true);
+	ui_header_pressure_seam(seam_x, seam_y, offset + corner, UI_BUTTON_H(), seam, g_theme->SHADOWS);
+	draw_set_color(0xffffffff);
+
+	g_theme->BUTTON_COL     = _BUTTON_COL;
+	g_theme->HOVER_COL      = _HOVER_COL;
+	g_theme->FILL_BUTTON_BG = _FILL_BUTTON_BG;
+	if (horizontal) {
+		g_ui->_w = _w;
+	}
+}
+
 void ui_header_render_ui() {
 	if (g_config->touch_ui) {
 		ui_header_h = ui_header_default_h + 4;
@@ -25,9 +95,11 @@ void ui_header_render_ui() {
 		return;
 	}
 
-	if (g_ui->is_typing) {
+	static bool pen_detected = false;
+	if (g_ui->is_typing || pen_detected != pen_connected) {
 		ui_header_handle->redraws = 2;
 	}
+	pen_detected = pen_connected;
 
 	// One header per 3D view
 	i32 views = base_is_split() ? 2 : 1;
@@ -91,13 +163,50 @@ void ui_header_draw_tool_properties_color_picker_normal() {
 }
 
 void ui_header_draw_tool_properties_color_picker_base() {
+	g_ui->changed = false;
+	ui_color_wheel((u32 *)&g_context->picked_color->base, &ui_header_color_state, false, -1, 11 * g_theme->ELEMENT_H * UI_SCALE(), true, NULL, NULL);
+	g_context->picked_color->base = color_set_ab(g_context->picked_color->base, 255);
+
+	ui_slider(&g_context->picked_color->opacity, tr("Opacity"), 0.0, 1.0, true, 100.0, true, UI_ALIGN_RIGHT, true);
+	g_context->picked_color->opacity = math_max(0.0, math_min(1.0, g_context->picked_color->opacity));
+
+	if (g_config->tools != TOOLS_SCULPT) {
+		ui_row2();
+		ui_text(tr("Normal"), UI_ALIGN_LEFT, 0x00000000);
+		ui_state_t state = ui_swatch(g_context->picked_color->normal);
+		if (state == UI_STATE_RELEASED && g_ui->combo_selected_id == 0) {
+			ui_menu_draw(&ui_header_draw_tool_properties_color_picker_normal, -1, -1);
+		}
+
+		ui_slider(&g_context->picked_color->occlusion, tr("Occlusion"), 0.0, 1.0, true, 100.0, true, UI_ALIGN_RIGHT, true);
+		ui_slider(&g_context->picked_color->roughness, tr("Roughness"), 0.0, 1.0, true, 100.0, true, UI_ALIGN_RIGHT, true);
+		ui_slider(&g_context->picked_color->metallic, tr("Metallic"), 0.0, 1.0, true, 100.0, true, UI_ALIGN_RIGHT, true);
+		ui_slider(&g_context->picked_color->height, tr("Height"), 0.0, 1.0, true, 100.0, true, UI_ALIGN_RIGHT, true);
+	}
+
+	if (g_ui->changed || g_ui->is_typing) {
+		ui_header_handle->redraws = 2;
+		ui_menu_keep_open         = true;
+	}
+}
+
+void ui_header_draw_tool_properties_colorid_write(void *_) {
+	render_target_t *rt = any_map_get(render_path_render_targets, "texpaint_colorid");
+	draw_begin(rt->_image, true, g_context->colorid_picked_color);
+	draw_end();
+}
+
+void ui_header_draw_tool_properties_color_picker_colorid() {
 	ui_fill(0, 0, g_ui->_w / (float)UI_SCALE(), g_theme->ELEMENT_H * 9, g_theme->SEPARATOR_COL);
 	g_ui->changed = false;
-	ui_color_wheel((u32 *)&g_context->picked_color->base, &ui_header_color_state, false, -1, 10 * g_theme->ELEMENT_H * UI_SCALE(), false, NULL, NULL);
+	ui_color_wheel(&g_context->colorid_picked_color, &ui_header_color_state, false, -1, 10 * g_theme->ELEMENT_H * UI_SCALE(), false, NULL, NULL);
 	if (g_ui->changed) {
-		g_context->picked_color->base = color_set_ab(g_context->picked_color->base, 255);
-		ui_header_handle->redraws     = 2;
-		ui_menu_keep_open             = true;
+		g_context->colorid_picked_color = color_set_ab(g_context->colorid_picked_color, 255);
+		sys_notify_on_next_frame(&ui_header_draw_tool_properties_colorid_write, NULL);
+		g_context->ddirty          = 2;
+		ui_header_handle->redraws  = 2;
+		ui_toolbar_handle->redraws = 1;
+		ui_menu_keep_open          = true;
 	}
 }
 
@@ -157,10 +266,11 @@ static void ui_header_crop_layers() {
 
 void ui_header_draw_tool_properties() {
 	if (g_context->tool == TOOL_TYPE_COLORID) {
-		ui_text(tr("Picked Color"), UI_ALIGN_LEFT, 0x00000000);
 		if (g_context->colorid_picked) {
-			render_target_t *rt = any_map_get(render_path_render_targets, "texpaint_colorid");
-			ui_image(rt->_image, 0xffffffff, 64);
+			ui_swatch(g_context->colorid_picked_color);
+			if (g_ui->is_hovered && g_ui->input_released && g_ui->combo_selected_id == 0) {
+				ui_menu_draw(&ui_header_draw_tool_properties_color_picker_colorid, -1, -1);
+			}
 		}
 		g_ui->enabled = g_context->colorid_picked;
 		if (ui_icon_button(tr("Clear"), ICON_ERASE, UI_ALIGN_CENTER)) {
@@ -231,41 +341,34 @@ void ui_header_draw_tool_properties() {
 			ui_tooltip(tr("Add picked color to swatches"));
 		}
 
-		if (g_config->tools != TOOLS_SCULPT) {
-
-			i32 _w = g_ui->_w;
-			g_ui->_w /= 2;
-
-			ui_swatch(g_context->picked_color->normal);
-			if (g_ui->is_hovered && g_ui->input_released && g_ui->combo_selected_id == 0) {
-				ui_menu_draw(&ui_header_draw_tool_properties_color_picker_normal, -1, -1);
-			}
-			ui_text(tr("Normal"), UI_ALIGN_LEFT, 0x00000000);
-			g_ui->_w = _w;
-
-			ui_slider(&g_context->picked_color->occlusion, tr("Occlusion"), 0.0, 1.0, true, 100.0, true, UI_ALIGN_RIGHT, true);
-			ui_slider(&g_context->picked_color->roughness, tr("Roughness"), 0.0, 1.0, true, 100.0, true, UI_ALIGN_RIGHT, true);
-			ui_slider(&g_context->picked_color->metallic, tr("Metallic"), 0.0, 1.0, true, 100.0, true, UI_ALIGN_RIGHT, true);
-			ui_slider(&g_context->picked_color->height, tr("Height"), 0.0, 1.0, true, 100.0, true, UI_ALIGN_RIGHT, true);
-		}
-
-		ui_slider(&g_context->picked_color->opacity, tr("Opacity"), 0.0, 1.0, true, 100.0, true, UI_ALIGN_RIGHT, true);
-
 		ui_check(&g_context->picker_select_material, tr("Select Material"), "");
 
-		ui_check(&g_context->picker_paint_mask, tr("Paint Mask"), "");
+		ui_check(&g_context->picker_material_mask, tr("Material Mask"), "");
 		if (ui_item_changed()) {
 			make_material_parse_paint_material(false);
 		}
 
-		ui_check(&g_context->picker_viewport_mask, tr("Viewport Mask"), "");
+		ui_check(&g_context->picker_color_mask, tr("Color Mask"), "");
+		if (ui_item_changed()) {
+			make_material_parse_paint_material(false);
+		}
+
+		g_ui->enabled = g_context->picker_color_mask;
+		ui_slider(&g_context->picker_color_mask_tolerance, tr("Tolerance"), 0.0, 1.0, true, 100.0, true, UI_ALIGN_RIGHT, true);
+		g_ui->enabled = true;
+
+		i32 _w = g_ui->_w;
+		g_ui->_w *= 1.4;
+		ui_check(&g_context->picker_hide_other_materials, tr("Hide Other Materials"), "");
+		g_ui->_w = _w;
 		if (ui_item_changed()) {
 			make_material_parse_mesh_material();
 		}
 
 		if (ui_icon_button(tr("Clear"), ICON_ERASE, UI_ALIGN_CENTER)) {
-			g_context->picker_viewport_mask = false;
-			g_context->picker_paint_mask    = false;
+			g_context->picker_hide_other_materials = false;
+			g_context->picker_material_mask        = false;
+			g_context->picker_color_mask           = false;
 			make_material_parse_mesh_material();
 			make_material_parse_paint_material(false);
 		}
@@ -290,6 +393,9 @@ void ui_header_draw_tool_properties() {
 				}
 			}
 			else {
+				if (!context_is_decal()) {
+					ui_header_pressure_row();
+				}
 				ui_slider(&g_context->brush_radius, tr("Radius"), 0.01, 2.0, true, 100.0, true, UI_ALIGN_RIGHT, true);
 				if (g_ui->is_hovered) {
 					any_map_t *vars = any_map_create();
@@ -301,6 +407,9 @@ void ui_header_draw_tool_properties() {
 					        "and move mouse to the right or press {brush_radius_increase} to increase the radius",
 					        vars));
 					map_free(vars);
+				}
+				if (!context_is_decal()) {
+					ui_header_pressure_toggle(&g_config->pressure_radius);
 				}
 			}
 		}
@@ -321,6 +430,7 @@ void ui_header_draw_tool_properties() {
 				}
 			}
 
+			ui_header_pressure_row();
 			ui_slider(&g_context->brush_angle, tr("Angle"), 0.0, 360.0, true, 1, true, UI_ALIGN_RIGHT, true);
 			bool angle_changed = ui_item_changed();
 			if (g_ui->is_hovered) {
@@ -331,13 +441,16 @@ void ui_header_draw_tool_properties() {
 				    vars));
 				map_free(vars);
 			}
+			ui_header_pressure_toggle(&g_config->pressure_angle);
 
 			if (angle_changed) {
 				make_material_parse_paint_material(true);
 			}
 		}
 
+		ui_header_pressure_row();
 		ui_slider(&g_context->brush_opacity, tr("Opacity"), 0.0, 1.0, true, 100.0, true, UI_ALIGN_RIGHT, true);
+		g_context->brush_opacity = math_max(0.0, math_min(1.0, g_context->brush_opacity));
 		if (g_ui->is_hovered) {
 			any_map_t *vars = any_map_create();
 			any_map_set(vars, "brush_opacity", any_map_get(g_keymap, "brush_opacity"));
@@ -346,10 +459,13 @@ void ui_header_draw_tool_properties() {
 			               vars));
 			map_free(vars);
 		}
+		ui_header_pressure_toggle(&g_config->pressure_opacity);
 
 		if (g_context->tool == TOOL_TYPE_BRUSH || g_context->tool == TOOL_TYPE_ERASER || g_context->tool == TOOL_TYPE_CLONE || decal_mask ||
 		    g_context->tool == TOOL_TYPE_PARTICLE) {
+			ui_header_pressure_row();
 			ui_slider(&g_context->brush_hardness, tr("Hardness"), 0.0, 1.0, true, 100.0, true, UI_ALIGN_RIGHT, true);
+			ui_header_pressure_toggle(&g_config->pressure_hardness);
 		}
 
 		if (g_context->tool != TOOL_TYPE_ERASER && g_config->tools != TOOLS_SCULPT) {
