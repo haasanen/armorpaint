@@ -108,6 +108,7 @@
 #include "nodes_mesh/mesh_boolean_node.c"
 #include "nodes_mesh/mesh_decimate_node.c"
 #include "nodes_mesh/mesh_displace_node.c"
+#include "nodes_mesh/mesh_group_node.c"
 #include "nodes_mesh/mesh_image_node.c"
 #include "nodes_mesh/mesh_input_node.c"
 #include "nodes_mesh/mesh_join_node.c"
@@ -156,11 +157,11 @@
 #include "render/render_pass.c"
 #include "render/render_path_base.c"
 #include "render/render_path_lit.c"
-#include "render/render_path_unlit.c"
 #include "render/render_path_paint.c"
 #include "render/render_path_preview.c"
 #include "render/render_path_raytrace.c"
 #include "render/render_path_raytrace_bake.c"
+#include "render/render_path_unlit.c"
 #include "render/render_pathsphere.c"
 
 #include "slots/slot_brush.c"
@@ -207,6 +208,7 @@
 #include "util/util_clone.c"
 #include "util/util_csg.c"
 #include "util/util_cursor.c"
+#include "util/util_draw.c"
 #include "util/util_encode.c"
 #include "util/util_env.c"
 #include "util/util_geom.c"
@@ -343,6 +345,7 @@ void _kickstart() {
 	g_project->_->assets          = any_array_create_from_raw((void *[]){}, 0);
 	g_project->mesh_assets        = any_array_create_from_raw((void *[]){}, 0);
 	g_project->_->material_groups = any_array_create_from_raw((void *[]){}, 0);
+	g_project->_->mesh_groups     = any_array_create(0);
 	g_project->_->materials       = any_array_create_from_raw((void *[]){}, 0);
 	g_project->_->brushes         = any_array_create_from_raw((void *[]){}, 0);
 	g_project->_->layers          = any_array_create_from_raw((void *[]){}, 0);

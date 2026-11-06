@@ -380,6 +380,12 @@ typedef struct context {
 	f32                         select_y1;
 	f32                         select_x2;
 	f32                         select_y2;
+	select_mode_t               select_mode;
+	f32_array_t                *select_points;
+	f32                         select_cursor_x;
+	f32                         select_cursor_y;
+	f64                         select_click_time;
+	struct gpu_texture         *select_mask_image;
 	bool                        write_icon_on_export;
 	struct gpu_texture         *text_tool_image;
 	char                       *text_tool_text;
@@ -578,6 +584,11 @@ typedef struct history_step {
 	vec4_t                       object_loc;
 	quat_t                       object_rot;
 	vec4_t                       object_scale;
+	struct slot_layer_t_array   *merge_layers; // Range of the layer array on the other side of a merge
+	i32_array_t                 *merge_parents;
+	i32                          merge_start;
+	i32                          merge_length;
+	bool                         with_prev; // Undone and redone together with the previous step
 } history_step_t;
 
 typedef struct logic_node {
@@ -626,6 +637,7 @@ typedef struct {
 	struct slot_font_t_array     *fonts;
 	struct slot_sound_t_array    *sounds;
 	struct node_group_t_array    *material_groups;
+	struct node_group_t_array    *mesh_groups;
 	char                         *filepath;
 	i32                           next_asset_id;
 	struct mesh_object_t_array   *paint_objects;
@@ -678,6 +690,7 @@ typedef struct project {
 	struct ui_node_canvas_t_array               *mesh_nodes;
 	struct i32_array                            *mesh_nodes_objects; // Object index for each mesh_nodes canvas
 	struct f32_array_t_array                    *mesh_paths;         // Path and curve tool points
+	struct ui_node_canvas_t_array               *mesh_groups;
 	project_runtime_t                           *_;
 } project_t;
 

@@ -1,32 +1,33 @@
 
 #include "../global.h"
 
-bool                     ui_nodes_show_menu       = false;
-bool                     ui_nodes_show_menu_first = true;
-bool                     ui_nodes_hide_menu       = false;
-i32                      ui_nodes_menu_category   = 0;
-f32                      ui_nodes_popup_x         = 0.0;
-f32                      ui_nodes_popup_y         = 0.0;
-i32                      ui_nodes_node_search_x;
-i32                      ui_nodes_node_search_y;
-bool                     ui_nodes_uichanged_last        = false;
-bool                     ui_nodes_recompile_mat         = false; // Mat preview
-bool                     ui_nodes_recompile_mat_final   = false;
-ui_node_t               *ui_nodes_node_search_spawn     = NULL;
-i32                      ui_nodes_node_search_offset    = 0;
-ui_node_canvas_t        *ui_nodes_last_canvas           = NULL;
-i32                      ui_nodes_last_node_selected_id = -1;
-bool                     ui_nodes_release_link          = false;
-bool                     ui_nodes_is_node_menu_op       = false;
-gpu_texture_t           *ui_nodes_grid                  = NULL;
-bool                     ui_nodes_controls_down         = false;
-static char             *ui_nodes_canvas_name_prev      = NULL;
-ui_node_link_t          *_ui_nodes_on_link_drag_link_drag;
-ui_node_t               *_ui_nodes_on_link_drag_node;
-ui_node_socket_t        *_ui_nodes_on_socket_released_socket;
-ui_node_t               *_ui_nodes_on_socket_released_node;
-ui_node_t               *_ui_nodes_on_canvas_released_selected;
-bool                     _ui_nodes_node_search_first;
+bool              ui_nodes_show_menu       = false;
+bool              ui_nodes_show_menu_first = true;
+bool              ui_nodes_hide_menu       = false;
+i32               ui_nodes_menu_category   = 0;
+f32               ui_nodes_popup_x         = 0.0;
+f32               ui_nodes_popup_y         = 0.0;
+i32               ui_nodes_node_search_x;
+i32               ui_nodes_node_search_y;
+bool              ui_nodes_uichanged_last        = false;
+static bool       ui_nodes_popup_changed         = false;
+bool              ui_nodes_recompile_mat         = false; // Mat preview
+bool              ui_nodes_recompile_mat_final   = false;
+ui_node_t        *ui_nodes_node_search_spawn     = NULL;
+i32               ui_nodes_node_search_offset    = 0;
+ui_node_canvas_t *ui_nodes_last_canvas           = NULL;
+i32               ui_nodes_last_node_selected_id = -1;
+bool              ui_nodes_release_link          = false;
+bool              ui_nodes_is_node_menu_op       = false;
+gpu_texture_t    *ui_nodes_grid                  = NULL;
+bool              ui_nodes_controls_down         = false;
+static char      *ui_nodes_canvas_name_prev      = NULL;
+ui_node_link_t   *_ui_nodes_on_link_drag_link_drag;
+ui_node_t        *_ui_nodes_on_link_drag_node;
+ui_node_socket_t *_ui_nodes_on_socket_released_socket;
+ui_node_t        *_ui_nodes_on_socket_released_node;
+ui_node_t        *_ui_nodes_on_canvas_released_selected;
+bool              _ui_nodes_node_search_first;
 void (*_ui_nodes_node_search_done)(void);
 ui_node_t *ui_nodes_node_changed = NULL;
 void (*_ui_nodes_render_tmp)(i32);
@@ -243,27 +244,35 @@ void ui_viewnodes_on_link_drag(i32 link_drag_id, bool is_new_link) {
 }
 
 void ui_viewnodes_on_socket_released_group_edit_box() {
-	ui_node_socket_t *socket     = _ui_nodes_on_socket_released_socket;
-	ui_node_t        *node       = _ui_nodes_on_socket_released_node;
+	ui_node_socket_t *socket = _ui_nodes_on_socket_released_socket;
+	ui_node_t        *node   = _ui_nodes_on_socket_released_node;
 	if (string_equals(socket->type, "MESH")) {
 		// Mesh input of a script node, only the name can be edited
 		char *name = ui_text_input(&_ui_nodes_name, tr("Name"), UI_ALIGN_LEFT, true, false);
 		if (ui_icon_button(tr("OK"), ICON_CHECK, UI_ALIGN_CENTER)) {
-			ui_nodes_push_undo(NULL);
+			bool is_group = string_equals(node->type, "GROUP_INPUT") || string_equals(node->type, "GROUP_OUTPUT");
+			if (!is_group) {
+				ui_nodes_push_undo(NULL);
+			}
 			socket->name = string_copy(name);
 			ui_box_hide();
-			ui_nodes_canvas_changed();
+			if (is_group) {
+				nodes_material_sync_sockets(node);
+			}
+			else {
+				ui_nodes_canvas_changed();
+			}
 			ui_nodes_hwnd->redraws = 2;
 		}
 		return;
 	}
-	string_array_t   *type_combo = any_array_create_from_raw_tmp(
-        (void *[]){
-            tr("Color"),
-            tr("Vector"),
-            tr("Value"),
-        },
-        3);
+	string_array_t *type_combo = any_array_create_from_raw_tmp(
+	    (void *[]){
+	        tr("Color"),
+	        tr("Vector"),
+	        tr("Value"),
+	    },
+	    3);
 	i32 type = ui_combo(&_ui_nodes_type, type_combo, tr("Type"), true, UI_ALIGN_LEFT, true);
 	if (ui_item_changed()) {
 		_ui_nodes_name = type == 0 ? tr("Color") : type == 1 ? tr("Vector") : tr("Value");
@@ -303,10 +312,10 @@ void ui_viewnodes_on_socket_released_group_edit_box() {
 		socket->max           = max;
 		socket->default_value = default_value;
 		ui_box_hide();
+		if (ui_nodes_canvas_type == CANVAS_TYPE_MESH) {
+			socket->display = type == 1 ? 1 : 0;
+		}
 		if (!is_group) {
-			if (ui_nodes_canvas_type == CANVAS_TYPE_MESH) {
-				socket->display = type == 1 ? 1 : 0;
-			}
 			ui_nodes_canvas_changed();
 		}
 		else {
@@ -486,8 +495,9 @@ void ui_viewnodes_on_socket_released(i32 socket_id) {
 	ui_node_socket_t *socket = ui_get_socket(canvas->nodes, socket_id);
 	ui_node_t        *node   = ui_get_node(canvas->nodes, socket->node_id);
 	if (g_ui->input_released_r) {
-		i32  input           = array_index_of(node->inputs, socket);
-		bool is_script_input = (string_equals(node->type, "MESH_SCRIPT") && input > 0) || string_equals(node->type, "SHADER_GPU"); // Shader node inputs and outputs
+		i32  input = array_index_of(node->inputs, socket);
+		bool is_script_input =
+		    (string_equals(node->type, "MESH_SCRIPT") && input > 0) || string_equals(node->type, "SHADER_GPU"); // Shader node inputs and outputs
 		if (string_equals(node->type, "GROUP_INPUT") || string_equals(node->type, "GROUP_OUTPUT") || is_script_input) {
 
 			_ui_nodes_on_socket_released_socket = socket;
@@ -645,7 +655,7 @@ void ui_nodes_draw_menubar_search(void *_) {
 static void ui_nodes_rename_mesh(ui_node_canvas_t *c, char *name) {
 	mesh_object_t *o = g_context->paint_object;
 	util_mesh_rename(o, name);
-	c->name                                           = o->base->name;
+	c->name = o->base->name;
 	ui_dock_redraw(TAB_AREA_SIDEBAR0);
 }
 
@@ -680,7 +690,7 @@ void ui_nodes_draw_menubar() {
 #endif
 
 	// Mesh canvas is named after the mesh, editing renames the mesh
-	if (full && ui_nodes_canvas_type == CANVAS_TYPE_MESH) {
+	if (full && ui_nodes_canvas_type == CANVAS_TYPE_MESH && ui_nodes_group_stack->length == 0) {
 		char *new_name      = c->name;
 		g_ui->_w            = math_floor(math_min(draw_string_width(g_font, g_ui->font_size, new_name) + 15 * UI_SCALE(), 100 * UI_SCALE()));
 		ui_id_t name_id     = ui_widget_id(&c->name, UI_ID_TEXT);
@@ -721,22 +731,18 @@ void ui_nodes_draw_menubar() {
 		g_ui->_w = ew;
 		if (name_changed) { // Check whether renaming is possible and update group links
 			if (ui_nodes_group_stack->length > 0) {
-				bool can_rename = true;
-				for (i32 i = 0; i < g_project->_->material_groups->length; ++i) {
-					node_group_t *m = g_project->_->material_groups->buffer[i];
-					if (string_equals(m->canvas->name, new_name)) {
-						can_rename = false; // Name already used
-					}
-				}
+				bool can_rename = ui_nodes_find_group(new_name) == NULL; // Name already used
 				if (can_rename) {
 					char *old_name                     = c->name;
 					c->name                            = string_copy(new_name);
-					ui_node_canvas_t_array_t *canvases = any_array_create_from_raw((void *[]){}, 0);
-					for (i32 i = 0; i < g_project->_->materials->length; ++i) {
+					ui_node_canvas_t_array_t *canvases = ui_nodes_canvas_type == CANVAS_TYPE_MESH
+					                                         ? nodes_mesh_canvases()
+					                                         : (ui_node_canvas_t_array_t *)any_array_create_from_raw((void *[]){}, 0);
+					for (i32 i = 0; ui_nodes_canvas_type == CANVAS_TYPE_MATERIAL && i < g_project->_->materials->length; ++i) {
 						slot_material_t *m = g_project->_->materials->buffer[i];
 						any_array_push(canvases, m->canvas);
 					}
-					for (i32 i = 0; i < g_project->_->material_groups->length; ++i) {
+					for (i32 i = 0; ui_nodes_canvas_type == CANVAS_TYPE_MATERIAL && i < g_project->_->material_groups->length; ++i) {
 						node_group_t *m = g_project->_->material_groups->buffer[i];
 						any_array_push(canvases, m->canvas);
 					}
@@ -1021,6 +1027,11 @@ void ui_nodes_update(void *_) {
 		ui_node_canvas(ui_nodes, c);
 		g_ui->input_enabled = _input_enabled;
 
+		if (ui_nodes_popup_changed) {
+			ui_nodes_popup_changed = false;
+			g_ui->changed          = true;
+		}
+
 		if (ui_nodes->color_picker_callback != NULL) {
 			g_context->color_picker_previous_tool = g_context->tool;
 			context_select_tool(TOOL_TYPE_PICKER);
@@ -1120,10 +1131,10 @@ void ui_nodes_update(void *_) {
 	if (ui_nodes_show_menu) {
 		node_list_t_array_t *list     = ui_nodes_get_node_list();
 		ui_node_t_array_t   *category = list->buffer[ui_nodes_menu_category];
-		bool                 is_group_category =
-		    ui_nodes_canvas_type == CANVAS_TYPE_MATERIAL && string_equals(nodes_material_categories->buffer[ui_nodes_menu_category], "Group");
-		i32 py    = ui_nodes_popup_y;
-		i32 menuw = math_floor(ew * 2.3);
+		bool is_group_category = ui_nodes_canvas_type != CANVAS_TYPE_BRUSH && string_equals(ui_nodes_get_categories()->buffer[ui_nodes_menu_category], "Group");
+		node_group_t_array_t *groups = ui_nodes_groups();
+		i32                   py     = ui_nodes_popup_y;
+		i32                   menuw  = math_floor(ew * 2.3);
 		draw_begin(NULL, false, 0);
 		ui_begin_region(g_ui, math_floor(ui_nodes_popup_x), math_floor(py), menuw);
 		i32 _FILL_BUTTON_BG     = g_theme->FILL_BUTTON_BG;
@@ -1134,7 +1145,7 @@ void ui_nodes_update(void *_) {
 		g_theme->ELEMENT_H      = g_config->touch_ui ? (28 + 2) : 28;
 		ui_menu_h               = category->length * UI_ELEMENT_H();
 		if (is_group_category) {
-			ui_menu_h += g_project->_->material_groups->length * UI_ELEMENT_H();
+			ui_menu_h += groups->length * UI_ELEMENT_H();
 		}
 		ui_menu_begin();
 		for (i32 i = 0; i < category->length; ++i) {
@@ -1159,8 +1170,8 @@ void ui_nodes_update(void *_) {
 			}
 		}
 		if (is_group_category) {
-			for (i32 i = 0; i < g_project->_->material_groups->length; ++i) {
-				node_group_t *g  = g_project->_->material_groups->buffer[i];
+			for (i32 i = 0; i < groups->length; ++i) {
+				node_group_t *g  = groups->buffer[i];
 				g_ui->enabled    = ui_nodes_can_place_group(g->canvas->name);
 				f32_array_t *row = f32_array_create_from_raw_tmp(
 				    (f32[]){
@@ -1182,10 +1193,10 @@ void ui_nodes_update(void *_) {
 					    1);
 					nodes->nodes_drag = true;
 				}
-				g_ui->enabled = !project_is_material_group_in_use(g);
+				g_ui->enabled = !ui_nodes_group_in_use(g);
 				if (ui_button("x", UI_ALIGN_CENTER, "")) {
 					history_delete_material_group(g);
-					array_remove(g_project->_->material_groups, g);
+					array_remove(groups, g);
 				}
 				g_ui->enabled = true;
 			}
@@ -1209,13 +1220,31 @@ void ui_nodes_update(void *_) {
 	g_ui->input_enabled = true;
 }
 
+void ui_nodes_render_popup() {
+	if (!ui_nodes_show || !ui_nodes_popup_open()) {
+		return;
+	}
+	if (g_ui->input_started || g_ui->is_key_pressed) {
+		ui_nodes_last_canvas = util_clone_canvas(ui_nodes_get_canvas(true));
+	}
+	draw_begin(NULL, false, 0);
+	g_ui->input_enabled = g_ui->combo_selected_id == 0 && !ui_box_show && !ui_menu_show;
+	ui_nodes_popup_render(ui_nodes_get_canvas(true));
+	g_ui->input_enabled = true;
+	draw_end();
+	if (g_ui->changed) {
+		ui_nodes_popup_changed = true;
+		ui_nodes_hwnd->redraws = 2;
+	}
+}
+
 void ui_nodes_accept_asset_drop(i32 index) {
 	if (ui_nodes_canvas_type == CANVAS_TYPE_MESH && g_context->paint_object == NULL) {
 		return;
 	}
 	ui_nodes_push_undo(NULL);
 	node_group_t *g = ui_nodes_group_stack->length > 0 ? ui_nodes_group_stack->buffer[ui_nodes_group_stack->length - 1] : NULL;
-	ui_node_t    *n = ui_nodes_canvas_type == CANVAS_TYPE_MESH       ? nodes_mesh_create_node(g_context->paint_object, "TEX_IMAGE")
+	ui_node_t    *n = ui_nodes_canvas_type == CANVAS_TYPE_MESH       ? nodes_mesh_create_node_in(ui_nodes_get_canvas(true), ui_nodes_get_nodes(), "TEX_IMAGE")
 	                  : ui_nodes_canvas_type == CANVAS_TYPE_MATERIAL ? nodes_material_create_node("TEX_IMAGE", g)
 	                                                                 : nodes_brush_create_node("TEX_IMAGE");
 	n->buttons->buffer[0]->default_value->buffer[0] = index;
@@ -1234,9 +1263,10 @@ void ui_nodes_accept_layer_drop(i32 index) {
 	if (slot_layer_is_group(g_project->_->layers->buffer[index])) {
 		return;
 	}
-	node_group_t *g = ui_nodes_group_stack->length > 0 ? ui_nodes_group_stack->buffer[ui_nodes_group_stack->length - 1] : NULL;
-	ui_node_t    *n = ui_nodes_canvas_type == CANVAS_TYPE_MESH ? nodes_mesh_create_node(g_context->paint_object, "LAYER_MASK") // Mesh nodes read masks only
-	                                                           : nodes_material_create_node(slot_layer_is_mask(g_context->layer) ? "LAYER_MASK" : "LAYER", g);
+	node_group_t *g                                 = ui_nodes_group_stack->length > 0 ? ui_nodes_group_stack->buffer[ui_nodes_group_stack->length - 1] : NULL;
+	ui_node_t    *n                                 = ui_nodes_canvas_type == CANVAS_TYPE_MESH
+	                                                      ? nodes_mesh_create_node_in(ui_nodes_get_canvas(true), ui_nodes_get_nodes(), "LAYER_MASK") // Mesh nodes read masks only
+	                                                      : nodes_material_create_node(slot_layer_is_mask(g_context->layer) ? "LAYER_MASK" : "LAYER", g);
 	n->buttons->buffer[0]->default_value->buffer[0] = index;
 	ui_nodes_get_nodes()->nodes_selected_id         = i32_array_create_from_raw(
         (i32[]){

@@ -137,9 +137,9 @@ void project_new(bool reset_layers) {
 		project_cleanup();
 		g_project->_->filepath = "";
 	}
-	g_project->stages       = NULL;
+	g_project->stages          = NULL;
 	g_project->_->translucency = false;
-	project_scripts_trusted = true;
+	project_scripts_trusted    = true;
 
 	if (g_project->_->layers->length == 0) {
 		any_array_push(g_project->_->layers, slot_layer_create("", LAYER_SLOT_TYPE_LAYER, NULL));
@@ -204,6 +204,7 @@ void project_new(bool reset_layers) {
 	ui_nodes_hwnd->redraws                 = 2;
 	ui_nodes_group_stack                   = any_array_create_from_raw((void *[]){}, 0);
 	g_project->_->material_groups          = any_array_create_from_raw((void *[]){}, 0);
+	g_project->_->mesh_groups              = any_array_create(0);
 	g_project->_->brushes                  = any_array_create_from_raw((void *[]){}, 0);
 	any_array_push(g_project->_->brushes, slot_brush_create(NULL));
 	g_context->brush    = g_project->_->brushes->buffer[0];
