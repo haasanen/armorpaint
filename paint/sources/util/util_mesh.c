@@ -516,6 +516,19 @@ static void _util_mesh_merge(mesh_object_t_array_t *paint_objects, bool paintabl
 	}
 }
 
+bool util_mesh_merged_partial() {
+	if (!g_context->merged_object_is_atlas || util_mesh_merged_objects == NULL) {
+		return false;
+	}
+	for (i32 i = 0; i < g_project->_->paint_objects->length; ++i) {
+		mesh_object_t *po = g_project->_->paint_objects->buffer[i];
+		if (po->base->visible && array_index_of(util_mesh_merged_objects, po) < 0) {
+			return true;
+		}
+	}
+	return false;
+}
+
 void util_mesh_merge(mesh_object_t_array_t *paint_objects) {
 	_util_mesh_merge(paint_objects, true);
 }
@@ -1020,20 +1033,24 @@ static void util_mesh_clear_dim(mesh_object_t *o) {
 }
 
 void util_mesh_to_origin(mesh_object_t_array_t *objects) {
-	f32 dx = 0.0;
-	f32 dy = 0.0;
-	f32 dz = 0.0;
+	f32 dx    = 0.0;
+	f32 dy    = 0.0;
+	f32 dz    = 0.0;
+	i32 count = 0;
 	for (i32 i = 0; i < objects->length; ++i) {
-		mesh_object_t *o    = objects->buffer[i];
-		i32            l    = 4;
-		f32            sc   = o->data->scale_pos / 32767.0;
-		i16_array_t   *va   = o->data->vertex_arrays->buffer[0]->values;
-		f32            minx = va->buffer[0];
-		f32            maxx = va->buffer[0];
-		f32            miny = va->buffer[1];
-		f32            maxy = va->buffer[1];
-		f32            minz = va->buffer[2];
-		f32            maxz = va->buffer[2];
+		mesh_object_t *o  = objects->buffer[i];
+		i32            l  = 4;
+		f32            sc = o->data->scale_pos / 32767.0;
+		i16_array_t   *va = o->data->vertex_arrays->buffer[0]->values;
+		if (va->length < l) {
+			continue;
+		}
+		f32 minx = va->buffer[0];
+		f32 maxx = va->buffer[0];
+		f32 miny = va->buffer[1];
+		f32 maxy = va->buffer[1];
+		f32 minz = va->buffer[2];
+		f32 maxz = va->buffer[2];
 		for (i32 i = 1; i < math_floor(va->length / (float)l); ++i) {
 			if (va->buffer[i * l] < minx) {
 				minx = va->buffer[i * l];
@@ -1057,10 +1074,14 @@ void util_mesh_to_origin(mesh_object_t_array_t *objects) {
 		dx += (minx + maxx) / 2.0 * sc;
 		dy += (miny + maxy) / 2.0 * sc;
 		dz += (minz + maxz) / 2.0 * sc;
+		count++;
 	}
-	dx /= objects->length;
-	dy /= objects->length;
-	dz /= objects->length;
+	if (count == 0) {
+		return;
+	}
+	dx /= count;
+	dy /= count;
+	dz /= count;
 
 	for (i32 i = 0; i < objects->length; ++i) {
 		mesh_object_t *o         = objects->buffer[i];
@@ -1078,6 +1099,9 @@ void util_mesh_to_origin(mesh_object_t_array_t *objects) {
 			if (math_abs(va->buffer[i * 4 + 2] * sc - dz) > max_scale) {
 				max_scale = math_abs(va->buffer[i * 4 + 2] * sc - dz);
 			}
+		}
+		if (max_scale == 0.0) {
+			continue;
 		}
 		o->base->transform->scale_world = o->data->scale_pos = o->data->scale_pos = max_scale;
 		transform_build_matrix(o->base->transform);

@@ -30,6 +30,28 @@ void ui_base_make_empty_envmap(i32 col) {
 	free(b);
 }
 
+f32 ui_base_asset_scale() {
+	return g_config->large_asset_previews ? 1.4 : 1.0;
+}
+
+i32 ui_base_sidebar_default_w(bool large) {
+	return large && ui_sidebar_default_w == ui_sidebar_default_w_full ? ui_sidebar_default_w_large : ui_sidebar_default_w;
+}
+
+i32 ui_base_asset_icon_size() {
+	return math_floor(50 * ui_base_asset_scale());
+}
+
+void ui_base_asset_name(char *name, f32 x, f32 icon_w) {
+	f32  d    = (icon_w - g_ui->_w) / 2.0;
+	bool last = g_ui->ratios != NULL && g_ui->current_ratio == g_ui->ratios->length - 1;
+	g_ui->_x  = x + d;
+	ui_text(name, UI_ALIGN_CENTER, 0x00000000);
+	if (!last) {
+		g_ui->_x -= d;
+	}
+}
+
 void ui_base_set_icon_scale() {
 	if (UI_SCALE() > 1) {
 		string_array_t *res = any_array_create_from_raw(

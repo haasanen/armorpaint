@@ -10,7 +10,7 @@ typedef struct slot_brush {
 	struct ui_nodes       *nodes;
 	struct ui_node_canvas *canvas;
 	struct gpu_texture    *image;      // 200px
-	struct gpu_texture    *image_icon; // 50px
+	struct gpu_texture    *image_icon;
 	struct gpu_texture    *image_wave; // Stroke preview, generated at runtime
 	bool                   preview_ready;
 	i32                    id;
@@ -188,6 +188,7 @@ typedef struct config {
 	i32                  view2d_grid_cell;
 	bool                 view2d_grid_snap;
 	bool                 pixel_snap;
+	bool                 large_asset_previews;
 } config_t;
 
 typedef struct slot_material {
