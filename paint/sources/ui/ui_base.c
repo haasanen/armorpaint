@@ -72,7 +72,9 @@ void ui_base_init() {
 
 	g_ui = ui_create(ops);
 
-	ui_on_tab_drop         = ui_dock_on_tab_drop;
+#if !defined(IRON_IOS) && !defined(IRON_ANDROID)
+	ui_on_tab_drop = ui_dock_on_tab_drop;
+#endif
 	ui_on_tab_dock         = ui_dock_on_tab_dock;
 	ui_on_tab_context_menu = ui_dock_on_tab_context_menu;
 	ui_dock_load();
@@ -152,7 +154,7 @@ void ui_base_update(void *_) {
 		}
 	}
 
-	ui_sidebar_w_mini = math_floor(ui_sidebar_default_w_mini * UI_SCALE());
+	ui_sidebar_w_mini = math_floor(ui_base_sidebar_mini_w(g_config->large_asset_previews) * UI_SCALE());
 
 	if (base_ui_enabled) {
 		render_gizmo_update();
