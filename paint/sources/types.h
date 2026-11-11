@@ -189,6 +189,7 @@ typedef struct config {
 	bool                 view2d_grid_snap;
 	bool                 pixel_snap;
 	bool                 large_asset_previews;
+	bool                 tooltips;
 } config_t;
 
 typedef struct slot_material {
@@ -427,6 +428,13 @@ typedef struct context {
 	bool                        brush_stencil_scaling;
 	f32                         brush_stencil_angle;
 	bool                        brush_stencil_rotating;
+	struct asset               *view_image;
+	f32                         view_image_x;
+	f32                         view_image_y;
+	f32                         view_image_scale;
+	f32                         view_image_angle;
+	f32                         view_image_opacity;
+	i32                         view_image_action;
 	f32                         brush_nodes_scale;
 	f32                         brush_nodes_angle;
 	f32                         brush_nodes_hardness;
