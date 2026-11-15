@@ -33,7 +33,7 @@ static bool               mouse_hidden = false;
 static int                xi_extension = -1;
 static Atom               XdndAware;
 static Atom               XdndDrop;
-static Atom               XdndEnter;
+static Atom               XdndPosition;
 static Atom               XdndTextUriList;
 static Atom               XdndStatus;
 static Atom               XdndActionCopy;
@@ -75,7 +75,7 @@ void iron_x11_init() {
 
 	XdndAware               = XInternAtom(x11_ctx.display, "XdndAware", False);
 	XdndDrop                = XInternAtom(x11_ctx.display, "XdndDrop", False);
-	XdndEnter               = XInternAtom(x11_ctx.display, "XdndEnter", False);
+	XdndPosition            = XInternAtom(x11_ctx.display, "XdndPosition", False);
 	XdndTextUriList         = XInternAtom(x11_ctx.display, "text/uri-list", False);
 	XdndStatus              = XInternAtom(x11_ctx.display, "XdndStatus", False);
 	XdndActionCopy          = XInternAtom(x11_ctx.display, "XdndActionCopy", False);
@@ -974,7 +974,7 @@ static bool _handle_messages() {
 			break;
 		}
 		case ClientMessage: {
-			if (event.xclient.message_type == XdndEnter) {
+			if (event.xclient.message_type == XdndPosition) {
 				Window source_window = event.xclient.data.l[0];
 				XEvent m;
 				memset(&m, 0, sizeof(m));
@@ -1194,11 +1194,14 @@ void iron_init(iron_window_options_t *ops) {
 	iron_window_create(ops);
 }
 
+void gpu_destroy(void);
+
 void iron_internal_shutdown() {
 #ifdef WITH_GAMEPAD
 	iron_linux_closeHIDGamepads();
 #endif
 	free(clipboardString);
+	gpu_destroy();
 	XCloseDisplay(x11_ctx.display);
 	iron_internal_shutdown_callback();
 }
@@ -1492,9 +1495,10 @@ void iron_gamepad_rumble(int gamepad, float left, float right) {}
 
 #endif
 
+extern void (*iron_save_and_quit)(bool);
+
 #ifdef WITH_NFD // Has gtk
 #include <gtk/gtk.h>
-extern void (*iron_save_and_quit)(bool);
 static bool iron_gtk_setlocale_disabled = false;
 void        iron_gtk_disable_setlocale() {
     if (iron_gtk_setlocale_disabled) {
@@ -1506,8 +1510,8 @@ void        iron_gtk_disable_setlocale() {
 #endif
 
 bool _save_and_quit_callback_internal() {
+	bool save = false;
 #ifdef WITH_NFD // Has gtk
-	bool          save = false;
 	XTextProperty text_prop;
 	XGetTextProperty(x11_ctx.display, x11_ctx.windows[0].window, &text_prop, NET_WM_NAME);
 	char *title = (char *)text_prop.value;
@@ -1534,8 +1538,8 @@ bool _save_and_quit_callback_internal() {
 			return false;
 		}
 	}
-	iron_save_and_quit(save);
 #endif
+	iron_save_and_quit(save);
 	return false;
 }
 
