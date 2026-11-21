@@ -6,7 +6,7 @@
 #include <iron.h>
 
 char *manifest_title           = "ArmorPaint";
-char *manifest_version         = "1.1";
+char *manifest_version         = "1.2alpha";
 char *manifest_version_project = "23";
 char *manifest_version_config  = "4";
 char *manifest_url             = "https://armorpaint.org";
@@ -340,6 +340,8 @@ ui_node_t            *nodes_mesh_output_def;
 any_map_t            *nodes_mesh_node_evals;
 any_map_t            *nodes_mesh_node_vectors;
 i32                   context_deselected_uid = -1; // Paint object with no outline and gizmo in the viewport
+any_array_t          *nodes_mesh_slots;
+i32                   nodes_mesh_eval_depth;
 ui_node_canvas_t     *nodes_mesh_eval_canvas;
 mesh_nodes_t         *nodes_mesh_eval_slot;
 mesh_object_t        *nodes_mesh_eval_object;

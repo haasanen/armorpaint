@@ -9,6 +9,10 @@ void util_mesh_remove_merged() {
 	if (util_mesh_merged_objects != NULL) {
 		util_mesh_merged_objects->length = 0;
 	}
+	if (g_context->paint_body != NULL) { // Collider of the merged mesh for particle painting
+		physics_body_remove(g_context->paint_body);
+		g_context->paint_body = NULL;
+	}
 	if (g_context->merged_object != NULL) {
 		mesh_data_delete(g_context->merged_object->data);
 		mesh_object_remove(g_context->merged_object);
@@ -521,12 +525,13 @@ mesh_object_t_array_t *util_mesh_get_merged_objects() {
 }
 
 bool util_mesh_merged_partial() {
-	if (!g_context->merged_object_is_atlas || util_mesh_merged_objects == NULL) {
+	if (util_mesh_merged_objects == NULL) {
 		return false;
 	}
 	for (i32 i = 0; i < g_project->_->paint_objects->length; ++i) {
-		mesh_object_t *po = g_project->_->paint_objects->buffer[i];
-		if (po->base->visible && array_index_of(util_mesh_merged_objects, po) < 0) {
+		mesh_object_t *po     = g_project->_->paint_objects->buffer[i];
+		bool           merged = array_index_of(util_mesh_merged_objects, po) >= 0;
+		if (po->base->visible ? !merged && g_context->merged_object_is_atlas : merged) {
 			return true;
 		}
 	}
