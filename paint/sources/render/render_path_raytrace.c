@@ -290,7 +290,7 @@ static bool render_path_raytrace_override_targets(i32 count) {
 	if (count == 0) {
 		return false;
 	}
-	char *format    = base_bits == TEXTURE_BITS_BITS8 ? "RGBA32" : base_bits == TEXTURE_BITS_BITS16 ? "RGBA64" : "RGBA128";
+	char *format    = base_bits == TEXTURE_BITS_BITS8 ? "RGBA32" : "RGBA64";
 	i32   width     = config_get_texture_res_x();
 	i32   height    = config_get_texture_res_y();
 	bool  recreated = false;
@@ -625,6 +625,6 @@ void render_path_raytrace_draw(bool use_live_layer) {
 	render_pathsphere();
 	render_path_set_target("", NULL, NULL, GPU_CLEAR_NONE, 0, 0.0);
 	render_path_bind_target("last", "tex");
-	render_path_draw_shader("Scene/copy_pass/copy_pass");
+	render_path_draw_shader("Scene/copy_pass/copyFB_pass");
 	render_path_paint_commands_cursor();
 }

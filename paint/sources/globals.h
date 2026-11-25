@@ -45,6 +45,7 @@ string_array_t  *box_export_channels;
 string_array_t  *box_export_color_spaces;
 i32              box_export_player_target;
 gpu_pipeline_t  *pipes_copy;
+gpu_pipeline_t  *pipes_copy_fb;
 gpu_pipeline_t  *pipes_copy8;
 gpu_pipeline_t  *pipes_copy64;
 gpu_pipeline_t  *pipes_copy128;
@@ -203,6 +204,7 @@ f32                       render_path_base_bloom_sample_scale;
 bool                      render_path_base_buf_swapped = false;
 string_array_t           *project_default_mesh_list    = NULL;
 gpu_pipeline_t           *ui_view2d_pipe;
+gpu_pipeline_t           *ui_view2d_pipe_fb;
 i32                       ui_view2d_channel_loc;
 view_2d_type_t            ui_view2d_type = VIEW_2D_TYPE_LAYER;
 bool                      ui_view2d_show = false;
@@ -389,6 +391,7 @@ gpu_texture_t  *util_uv_trianglemap              = NULL;
 bool            util_uv_trianglemap_cached       = false;
 gpu_texture_t  *util_uv_dilatemap                = NULL;
 bool            util_uv_dilatemap_cached         = false;
+i32             util_uv_dilatemap_version        = 0;
 gpu_texture_t  *util_uv_uvislandmap              = NULL;
 bool            util_uv_uvislandmap_cached       = false;
 bool            util_uv_seammap_cached           = false;
@@ -415,9 +418,7 @@ char *account_token = NULL; // NULL when signed out
 char *account_email = NULL; // NULL until /auth/me answers
 char *account_code  = NULL; // Shown while signing in, "" until the server hands one out
 
-#ifdef IRON_DIRECT3D12
-char *render_path_raytrace_ext = ".cso";
-#elif defined(IRON_METAL)
+#if defined(IRON_METAL)
 char *render_path_raytrace_ext = ".metal";
 #elif defined(IRON_WEBGPU)
 char *render_path_raytrace_ext = ".wgsl";

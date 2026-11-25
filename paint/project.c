@@ -5,7 +5,6 @@ project_t *main() {
 	flags->package             = "org.armorpaint";
 	flags->embed               = has_arg("--embed"); // !has_arg("--debug"); // clang 19
 	flags->with_physics        = true;
-	flags->with_d3dcompiler    = true;
 	flags->with_nfd            = true;
 	flags->with_compress       = platform != PLATFORM_ANDROID;
 	flags->with_image_write    = true;
@@ -35,6 +34,11 @@ project_t *main() {
 	add_cfiles(project, "sources/minic_api.c");
 	add_cfiles(project, "sources/main.c");
 	add_shaders(project, "shaders/*.shader");
+	add_shader(project, "shaders/compute/dilate_index.shader", "dilate_index", "");
+	add_shader(project, "shaders/compute/dilate.shader", "dilate_rgba32", "FORMAT_RGBA32");
+	add_shader(project, "shaders/compute/dilate.shader", "dilate_rgba64", "FORMAT_RGBA64");
+	add_shader(project, "shaders/compute/dilate_copy.shader", "dilate_copy_rgba32", "FORMAT_RGBA32");
+	add_shader(project, "shaders/compute/dilate_copy.shader", "dilate_copy_rgba64", "FORMAT_RGBA64");
 	add_assets(project, "assets/*", "data/{name}", 0);
 	add_assets(project, "assets/export_presets/*", "data/export_presets/{name}", 0);
 	add_assets(project, "assets/keymap_presets/*", "data/keymap_presets/{name}", 0);

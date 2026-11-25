@@ -195,7 +195,7 @@ void layers_make_temp_img() {
 	}
 
 	if (layers_temp_image == NULL) {
-		char            *format = base_bits == TEXTURE_BITS_BITS8 ? "RGBA32" : base_bits == TEXTURE_BITS_BITS16 ? "RGBA64" : "RGBA128";
+		char            *format = base_bits == TEXTURE_BITS_BITS8 ? "RGBA32" : "RGBA64";
 		render_target_t *t      = render_target_create();
 		t->name                 = "temptex0";
 		t->width                = l->texpaint->width;
@@ -238,7 +238,7 @@ void layers_make_export_img() {
 		map_delete(render_path_render_targets, "expc");
 	}
 	if (layers_expa == NULL) {
-		char *format = base_bits == TEXTURE_BITS_BITS8 ? "RGBA32" : base_bits == TEXTURE_BITS_BITS16 ? "RGBA64" : "RGBA128";
+		char *format = base_bits == TEXTURE_BITS_BITS8 ? "RGBA32" : "RGBA64";
 		{
 			render_target_t *t  = render_target_create();
 			t->name             = "expa";
@@ -316,7 +316,7 @@ bool layers_is_fill_material() {
 	return false;
 }
 
-void layers_update_fill_layers() {
+static void layers_update_fill_layers_internal(bool reparse_paint, bool dilate) {
 	if (bake_texture_node_baking)
 		return;
 
@@ -335,6 +335,9 @@ void layers_update_fill_layers() {
 		if (in_use)
 			draw_end();
 
+		if (!reparse_paint) {
+			make_material_save_paint_material();
+		}
 		g_context->tool      = TOOL_TYPE_FILL;
 		g_context->fill_type = FILL_TYPE_OBJECT;
 		render_path_paint_set_plane_mesh();
@@ -342,13 +345,19 @@ void layers_update_fill_layers() {
 		g_context->pdirty = 1;
 		render_path_paint_use_live_layer(true);
 		render_path_paint_commands_paint(false);
-		render_path_paint_dilate(true, true);
+		if (dilate)
+			render_path_paint_dilate(true, true);
 		render_path_paint_use_live_layer(false);
 		g_context->tool      = _tool;
 		g_context->fill_type = _fill_type;
 		g_context->pdirty    = 0;
 		render_path_paint_restore_plane_mesh();
-		make_material_parse_paint_material(true);
+		if (reparse_paint) {
+			make_material_parse_paint_material(true);
+		}
+		else {
+			make_material_restore_paint_material();
+		}
 		ui_view2d_hwnd->redraws = 2;
 
 		if (in_use)
@@ -376,6 +385,9 @@ void layers_update_fill_layers() {
 		bool in_use = gpu_in_use;
 		if (in_use)
 			draw_end();
+		if (!reparse_paint) {
+			make_material_save_paint_material();
+		}
 		g_context->pdirty    = 1;
 		g_context->tool      = TOOL_TYPE_FILL;
 		g_context->fill_type = FILL_TYPE_OBJECT;
@@ -403,7 +415,8 @@ void layers_update_fill_layers() {
 					else {
 						slot_layer_clear(l, 0x00000000, NULL, 1.0, layers_default_rough, 0.0);
 						render_path_paint_commands_paint(false);
-						render_path_paint_dilate(true, true);
+						if (dilate)
+							render_path_paint_dilate(true, true);
 					}
 				}
 			}
@@ -421,7 +434,8 @@ void layers_update_fill_layers() {
 					layers_set_object_mask();
 					slot_layer_clear(l, 0x00000000, NULL, 1.0, layers_default_rough, 0.0);
 					render_path_paint_commands_paint(false);
-					render_path_paint_dilate(true, true);
+					if (dilate)
+						render_path_paint_dilate(true, true);
 				}
 			}
 		}
@@ -435,8 +449,25 @@ void layers_update_fill_layers() {
 		layers_set_object_mask();
 		g_context->tool      = _tool;
 		g_context->fill_type = _fill_type;
-		make_material_parse_paint_material(false);
+		if (reparse_paint) {
+			make_material_parse_paint_material(false);
+		}
+		else {
+			make_material_restore_paint_material();
+		}
 	}
+}
+
+void layers_update_fill_layers() {
+	layers_update_fill_layers_internal(true, true);
+}
+
+void layers_update_fill_layers_keep_paint() {
+	layers_update_fill_layers_internal(false, true);
+}
+
+void layers_update_fill_layers_live() {
+	layers_update_fill_layers_internal(false, false);
 }
 
 bool layers_is_path_material() {
@@ -1325,7 +1356,7 @@ static slot_layer_t *layers_move_preview(slot_layer_t *l) {
 		moved.texpaint = _layers_move_copy(&layers_move_mask, l->texpaint, pipes_copy8, dx, dy);
 	}
 	else {
-		gpu_pipeline_t *pipe = base_bits == TEXTURE_BITS_BITS8 ? pipes_copy : base_bits == TEXTURE_BITS_BITS16 ? pipes_copy64 : pipes_copy128;
+		gpu_pipeline_t *pipe = base_bits == TEXTURE_BITS_BITS8 ? pipes_copy : pipes_copy64;
 		moved.texpaint       = _layers_move_copy(&layers_move_a, l->texpaint, pipe, dx, dy);
 		moved.texpaint_nor   = _layers_move_copy(&layers_move_b, l->texpaint_nor, pipe, dx, dy);
 		moved.texpaint_pack  = _layers_move_copy(&layers_move_c, l->texpaint_pack, pipe, dx, dy);
