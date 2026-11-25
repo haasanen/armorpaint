@@ -27,6 +27,7 @@ jobs:
     - name: Sync main with upstream/main
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        FORK_PAT: ${{ secrets.FORK_PAT }}
       run: |
         set -euo pipefail
 
@@ -59,5 +60,15 @@ jobs:
         git merge --no-ff upstream/main \
           -m "chore: sync upstream/main ($AHEAD commit$PLURAL)"
 
+        # Push with the fork PAT, not GITHUB_TOKEN: upstream keeps changing its
+        # .github/workflows/* files and the runner's App token may never push workflow
+        # file changes ("refusing to allow a GitHub App to create or update workflow",
+        # run 45414641960 on 2026-11-24: the merge committed on the runner only and the
+        # push was rejected, so fork main stayed behind every day since). The exact
+        # basic x-access-token form proven on this fleet; the bearer form 401s on the runner.
+        test -n "${FORK_PAT:-}" || { echo "::error::FORK_PAT secret is missing - cannot push"; exit 1; }
+        git config --local --unset-all 'http.https://github.com/.extraheader' || true
+        git config --local http.https://github.com/.extraheader "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$FORK_PAT" | base64 -w0)"
         git push origin main
+        git config --local --unset-all 'http.https://github.com/.extraheader' || true
         echo "Synced $AHEAD commit(s) from upstream. Release pipeline will rebuild."
