@@ -24,6 +24,18 @@ jobs:
       with:
         fetch-depth: 0
 
+    # 2026-11-25: upstream unified the Windows backends - base/sources/backends/vulkan_gpu.h
+    # is now included unconditionally, so --compile fails without the Vulkan SDK headers
+    # ('vulkan/vulkan_core.h' file not found, run 45548341627). The step below mirrors
+    # upstream's own windows_vulkan.yml verbatim; that lane is green on the same tree.
+    - name: Install Vulkan SDK
+      uses: jakoch/install-vulkan-sdk-action@v1
+      with:
+        vulkan_version: latest
+        install_runtime: false
+        cache: true
+        stripdown: true
+
     - name: Build (release)
       run: |
         cd paint
