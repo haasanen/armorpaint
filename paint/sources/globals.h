@@ -51,11 +51,6 @@ gpu_pipeline_t  *pipes_copy64;
 gpu_pipeline_t  *pipes_copy128;
 gpu_pipeline_t  *pipes_copy_bgra;
 gpu_pipeline_t  *pipes_copy_rgb = NULL;
-gpu_pipeline_t  *pipes_merge    = NULL;
-gpu_pipeline_t  *pipes_merge_r  = NULL;
-gpu_pipeline_t  *pipes_merge_g  = NULL;
-gpu_pipeline_t  *pipes_merge_b  = NULL;
-gpu_pipeline_t  *pipes_merge_a  = NULL;
 gpu_pipeline_t  *pipes_merge_mask;
 gpu_pipeline_t  *pipes_invert_mask;
 gpu_pipeline_t  *pipes_apply_mask;
@@ -254,6 +249,7 @@ char                 *parser_material_sample_uv_scale       = "1.0";
 bool                  parser_material_transform_color_space = true;
 bool                  parser_material_blur_passthrough      = false;
 bool                  parser_material_warp_passthrough      = false;
+bool                  parser_material_terrain_passthrough   = false;
 bool                  parser_material_atlas_uv              = false; // tex_coord_atlas holds the udim atlas uv
 ui_node_canvas_t     *parser_material_start_group           = NULL;
 ui_node_t_array_t    *parser_material_start_parents         = NULL;
@@ -405,6 +401,8 @@ gpu_texture_t  *render_path_raytrace_last_envmap   = NULL;
 bool            render_path_raytrace_is_bake       = false;
 bool            render_path_raytrace_override_pass = false;
 bool            render_path_raytrace_moving        = false;
+f32             render_path_raytrace_fog_density   = 0.0;
+u32             render_path_raytrace_fog_color     = 0xffffffff;
 
 bool sculpt_push_undo       = false;
 i32  ui_statusbar_default_h = 33;

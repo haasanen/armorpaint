@@ -1219,7 +1219,7 @@ variable emit_expression(opcodes *code, block *parent, expression *e) {
 		bool splat = is_component_wise(e->call.func_name) && is_vector(t.type);
 		for (size_t i = 0; i < e->call.parameters.size; ++i) {
 			o.op_call.parameters[i] = emit_expression(code, parent, e->call.parameters.e[i]);
-			if (splat && o.op_call.parameters[i].type.type == float_id) {
+			if (splat && !is_vector(o.op_call.parameters[i].type.type)) {
 				o.op_call.parameters[i] = emit_splat(code, o.op_call.parameters[i], t.type);
 			}
 		}
@@ -1931,6 +1931,17 @@ static void add_raytrace_funcs(void) {
 	add_func_types("geometry_texture2_size", "uint2", geometry, 1);
 }
 
+// Bit casts, and atomics on an element of a uint[] storage buffer: atomic_add(buffer, index, value) returns the old value
+static void add_compute_funcs(void) {
+	char *u[]      = {"uint"};
+	char *f[]      = {"float"};
+	char *atomic[] = {"uint", "uint", "uint"};
+	add_func_types("asfloat", "float", u, 1);
+	add_func_types("asuint", "uint", f, 1);
+	add_func_types("atomic_add", "uint", atomic, 3);
+	add_func_types("atomic_max", "uint", atomic, 3);
+}
+
 void functions_init(void) {
 	function     *new_functions = realloc(functions, functions_size * sizeof(function));
 	debug_context context       = {0};
@@ -2409,6 +2420,7 @@ void functions_init(void) {
 	add_func_float_float("ddy");
 	add_func_float3x3_float3x3("transpose");
 	add_raytrace_funcs();
+	add_compute_funcs();
 }
 
 static void grow_functions_if_needed(uint64_t size) {
@@ -4040,7 +4052,10 @@ static void tokens_add(tokens *tokens, token token) {
 
 // Keywords are only compared against identifiers of their length
 static int keyword_kind(tokenizer_buffer *buffer) {
-#define KEYWORD(text, kind) {text, sizeof(text) - 1, kind}
+#define KEYWORD(text, kind)          \
+	{                                \
+		text, sizeof(text) - 1, kind \
+	}
 	static const struct {
 		const char *text;
 		size_t      length;
@@ -4456,17 +4471,17 @@ void transform(uint32_t flags) {
 						            .to               = from,
 						            .access_list_size = 1,
 						            .access_list      = {{
-						                     .type = from_base_type,
-						                     .kind = ACCESS_SWIZZLE,
-						                     .access_swizzle =
-							                {
-						                             .swizzle =
-                                                    {
-						                                     .size    = 1,
-						                                     .indices = {swizzle_index},
-                                                    },
-							                },
-                                    }},
+						                .type = from_base_type,
+						                .kind = ACCESS_SWIZZLE,
+						                .access_swizzle =
+						                    {
+						                        .swizzle =
+						                            {
+						                                .size    = 1,
+						                                .indices = {swizzle_index},
+						                            },
+						                    },
+						            }},
 						        },
 						};
 						from_opcode.size = OP_SIZE(from_opcode, op_load_access_list);
@@ -5390,6 +5405,22 @@ void resolve_types_in_expression(statement *parent, expression *e) {
 					size = vector_size(t);
 				}
 			}
+
+			// min, max, clamp and abs of integers stay integers
+			type_id integer = NO_TYPE;
+			if (e->call.func_name == add_name("min") || e->call.func_name == add_name("max") || e->call.func_name == add_name("clamp") ||
+			    e->call.func_name == add_name("abs")) {
+				for (size_t i = 0; i < e->call.parameters.size; ++i) {
+					type_id t    = e->call.parameters.e[i]->type.type;
+					type_id base = is_vector_or_scalar(t) ? vector_base_type(t) : NO_TYPE;
+					if ((base != int_id && base != uint_id) || (i > 0 && base != integer)) {
+						integer = NO_TYPE;
+						break;
+					}
+					integer = base;
+				}
+			}
+
 			for (size_t i = 0; i < e->call.parameters.size; ++i) {
 				expression *p = e->call.parameters.e[i];
 				type_id     t = p->type.type;
@@ -5398,12 +5429,15 @@ void resolve_types_in_expression(statement *parent, expression *e) {
 					error(context, "Parameter %zu of %s has type %s, expected a scalar or a vector of size %u", i, get_name(e->call.func_name),
 					      t == NO_TYPE ? "unknown" : get_name(get_type(t)->name), size);
 				}
+				if (integer != NO_TYPE) {
+					continue;
+				}
 				type_ref to;
 				init_type_ref(&to, NO_NAME);
 				to.type = vector_to_size(float_id, vector_size(t));
 				convert_to_float(p, to);
 			}
-			e->type.type = vector_to_size(float_id, size);
+			e->type.type = vector_to_size(integer != NO_TYPE ? integer : float_id, size);
 			break;
 		}
 
@@ -5461,7 +5495,7 @@ void resolve_types_in_block(statement *parent, statement *block) {
 			type_id return_type = resolve_types_function->return_type.type;
 			type_id value_type  = s->expression->type.type;
 			bool    mismatch    = !types_compatible(value_type, return_type) ||
-			                (is_vector_or_scalar(value_type) && is_vector_or_scalar(return_type) && vector_size(value_type) != vector_size(return_type));
+			                      (is_vector_or_scalar(value_type) && is_vector_or_scalar(return_type) && vector_size(value_type) != vector_size(return_type));
 			if (value_type != NO_TYPE && return_type != NO_TYPE && mismatch) {
 				debug_context context = {0};
 				error(context, "Return type mismatch %s vs %s in %s", get_name(get_type(value_type)->name), get_name(get_type(return_type)->name),

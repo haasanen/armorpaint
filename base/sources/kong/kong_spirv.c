@@ -103,6 +103,8 @@ typedef enum spirv_opcode {
 	SPIRV_OPCODE_BITWISE_AND               = 199,
 	SPIRV_OPCODE_DPDX                      = 207,
 	SPIRV_OPCODE_DPDY                      = 208,
+	SPIRV_OPCODE_ATOMIC_I_ADD              = 234,
+	SPIRV_OPCODE_ATOMIC_U_MAX              = 239,
 	SPIRV_OPCODE_LOOP_MERGE                = 246,
 	SPIRV_OPCODE_SELECTION_MERGE           = 247,
 	SPIRV_OPCODE_LABEL                     = 248,
@@ -128,6 +130,7 @@ typedef enum spirv_opcode {
 typedef enum spirv_glsl_std {
 	SPIRV_GLSL_STD_ROUND        = 1,
 	SPIRV_GLSL_STD_FABS         = 4,
+	SPIRV_GLSL_STD_SABS         = 5,
 	SPIRV_GLSL_STD_FLOOR        = 8,
 	SPIRV_GLSL_STD_CEIL         = 9,
 	SPIRV_GLSL_STD_FRACT        = 10,
@@ -152,8 +155,14 @@ typedef enum spirv_glsl_std {
 	SPIRV_GLSL_STD_SQRT         = 31,
 	SPIRV_GLSL_STD_INVERSE_SQRT = 32,
 	SPIRV_GLSL_STD_FMIN         = 37,
+	SPIRV_GLSL_STD_UMIN         = 38,
+	SPIRV_GLSL_STD_SMIN         = 39,
 	SPIRV_GLSL_STD_FMAX         = 40,
+	SPIRV_GLSL_STD_UMAX         = 41,
+	SPIRV_GLSL_STD_SMAX         = 42,
 	SPIRV_GLSL_STD_FCLAMP       = 43,
+	SPIRV_GLSL_STD_UCLAMP       = 44,
+	SPIRV_GLSL_STD_SCLAMP       = 45,
 	SPIRV_GLSL_STD_FMIX         = 46,
 	SPIRV_GLSL_STD_STEP         = 48,
 	SPIRV_GLSL_STD_SMOOTHSTEP   = 49,
@@ -434,7 +443,8 @@ static void section_buffer_put(instructions_buffer *buffer) {
 	X(asin) X(acos) X(atan) X(atan2) X(pow) X(sqrt) X(rsqrt) X(min) X(max) X(clamp) X(saturate) X(lerp) X(step) X(smoothstep) X(distance) \
 	X(cross) X(normalize) X(reflect) X(tan) X(log) X(exp) X(sign) X(trunc) X(sinh) X(cosh) X(tanh) X(radians) X(degrees) X(transpose) X(exp2) \
 	X(texture_size) X(ray_query_trace) X(ray_query_trace_any) X(ray_query_hit) X(ray_query_distance) X(ray_query_barycentrics) \
-	X(ray_query_front_face) X(ray_query_object_to_world) X(ray_query_geometry) X(ray_query_vertex)
+	X(ray_query_front_face) X(ray_query_object_to_world) X(ray_query_geometry) X(ray_query_vertex) X(asfloat) X(asuint) X(atomic_add) \
+	X(atomic_max)
 // clang-format on
 
 enum {
@@ -777,6 +787,7 @@ static spirv_id convert_pointer_type_to_spirv_id(type_id type, storage_class sto
 static void write_base_types(instructions_buffer *buffer) {
 	void_type          = write_type_void(buffer);
 	void_function_type = write_type_function(buffer, void_type, NULL, 0);
+	add_to_type_map(void_id, void_type, false, STORAGE_CLASS_NONE); // Return type of helper functions
 
 	spirv_float_type = write_type_float(buffer, 32);
 	add_to_type_map(float_id, spirv_float_type, false, STORAGE_CLASS_NONE);
@@ -1505,6 +1516,17 @@ static spirv_id write_op_convert_f_to_u(instructions_buffer *instructions, spirv
 	return result;
 }
 
+// Device scope, relaxed: kernels are ordered by barriers between dispatches
+static spirv_id write_op_atomic(instructions_buffer *instructions, spirv_opcode opcode, spirv_id result_type, spirv_id pointer, spirv_id value) {
+	spirv_id result = allocate_index();
+
+	uint32_t operands[] = {result_type.id, result.id, pointer.id, get_uint_constant(1).id, get_uint_constant(0).id, value.id};
+
+	write_instruction(instructions, WORD_COUNT(operands), opcode, operands);
+
+	return result;
+}
+
 static spirv_id write_op_bitcast(instructions_buffer *instructions, spirv_id result_type, spirv_id operand) {
 	spirv_id result = allocate_index();
 
@@ -1573,6 +1595,12 @@ static spirv_id write_op_transpose(instructions_buffer *instructions, spirv_id t
 	uint32_t operands[] = {type.id, result.id, operand.id};
 	write_instruction(instructions, WORD_COUNT(operands), SPIRV_OPCODE_TRANSPOSE, operands);
 	return result;
+}
+
+// The float, signed or unsigned variant of a GLSL.std.450 instruction for the result type
+static uint32_t spirv_integer_inst(type_id t, uint32_t float_inst, uint32_t signed_inst, uint32_t unsigned_inst) {
+	type_id base = vector_base_type(t);
+	return base == int_id ? signed_inst : base == uint_id ? unsigned_inst : float_inst;
 }
 
 static spirv_id write_op_ext_inst(instructions_buffer *instructions, spirv_id result_type, spirv_id set, uint32_t instruction, spirv_id operand) {
@@ -1889,9 +1917,11 @@ static bool is_global_const(uint64_t index) {
 	return false;
 }
 
+static spirv_id get_var(instructions_buffer *instructions, variable param);
+
 // uint name[]: access chain to element index of the runtime array in member 0
 static spirv_id storage_buffer_element(instructions_buffer *instructions, uint64_t var_index, variable index) {
-	spirv_id indices[2] = {get_int_constant(0), convert_kong_index_to_spirv_id(index.index)};
+	spirv_id indices[2] = {get_int_constant(0), get_var(instructions, index)};
 	return write_op_access_chain(instructions, storage_buffer_uint_pointer_type, convert_kong_index_to_spirv_id(var_index), indices, 2);
 }
 
@@ -2038,7 +2068,7 @@ static void write_function(instructions_buffer *instructions, function *f, spirv
 			uint16_t indices_size = o->op_load_access_list.access_list_size;
 
 			if (get_type(o->op_load_access_list.from.type.type)->tex_kind == TEXTURE_KIND_2D) {
-				kong_assert(indices_size == 1);
+				kong_assert(indices_size == 1 || indices_size == 2);
 				kong_assert(o->op_load_access_list.access_list[0].kind == ACCESS_ELEMENT);
 
 				variable coordinate_var = o->op_load_access_list.access_list[0].access_element.index;
@@ -2054,6 +2084,14 @@ static void write_function(instructions_buffer *instructions, function *f, spirv
 					spirv_id image      = write_op_load(instructions, spirv_image_type, convert_kong_index_to_spirv_id(o->op_load_access_list.from.index));
 					spirv_id coordinate = get_var(instructions, coordinate_var);
 					value               = write_op_image_fetch(instructions, spirv_float4_type, image, coordinate);
+				}
+
+				// A swizzle of the texel, split into single components before
+				if (indices_size == 2) {
+					kong_access *a = &o->op_load_access_list.access_list[1];
+					kong_assert(a->kind == ACCESS_SWIZZLE && a->access_swizzle.swizzle.size == 1);
+					uint32_t component = a->access_swizzle.swizzle.indices[0];
+					value = write_op_composite_extract(instructions, convert_type_to_spirv_id(o->op_load_access_list.to.type.type), value, &component, 1);
 				}
 
 				hmput(index_map, o->op_load_access_list.to.index, value);
@@ -2489,9 +2527,22 @@ static void write_function(instructions_buffer *instructions, function *f, spirv
 				spirv_id id      = write_op_ext_inst(instructions, spirv_float_type, glsl_import, SPIRV_GLSL_STD_LENGTH, operand);
 				hmput(index_map, o->op_call.var.index, id);
 			}
+			else if (func == BUILTIN(asfloat) || func == BUILTIN(asuint)) {
+				spirv_id id = write_op_bitcast(instructions, func == BUILTIN(asfloat) ? spirv_float_type : spirv_uint_type,
+				                               get_var(instructions, o->op_call.parameters[0]));
+				hmput(index_map, o->op_call.var.index, id);
+			}
+			else if (func == BUILTIN(atomic_add) || func == BUILTIN(atomic_max)) {
+				spirv_id pointer = storage_buffer_element(instructions, o->op_call.parameters[0].index, o->op_call.parameters[1]);
+				spirv_id id      = write_op_atomic(instructions, func == BUILTIN(atomic_add) ? SPIRV_OPCODE_ATOMIC_I_ADD : SPIRV_OPCODE_ATOMIC_U_MAX,
+				                                   spirv_uint_type, pointer, get_var(instructions, o->op_call.parameters[2]));
+				hmput(index_map, o->op_call.var.index, id);
+			}
 			else if (func == BUILTIN(abs)) {
 				spirv_id operand = get_var(instructions, o->op_call.parameters[0]);
-				spirv_id id = write_op_ext_inst(instructions, convert_type_to_spirv_id(o->op_call.var.type.type), glsl_import, SPIRV_GLSL_STD_FABS, operand);
+				spirv_id id =
+				    write_op_ext_inst(instructions, convert_type_to_spirv_id(o->op_call.var.type.type), glsl_import,
+					                  spirv_integer_inst(o->op_call.var.type.type, SPIRV_GLSL_STD_FABS, SPIRV_GLSL_STD_SABS, SPIRV_GLSL_STD_SABS), operand);
 				hmput(index_map, o->op_call.var.index, id);
 			}
 			else if (func == BUILTIN(ceil)) {
@@ -2547,23 +2598,27 @@ static void write_function(instructions_buffer *instructions, function *f, spirv
 			else if (func == BUILTIN(min)) {
 				spirv_id operand1 = get_var(instructions, o->op_call.parameters[0]);
 				spirv_id operand2 = get_var(instructions, o->op_call.parameters[1]);
-				spirv_id id =
-				    write_op_ext_inst2(instructions, convert_type_to_spirv_id(o->op_call.var.type.type), glsl_import, SPIRV_GLSL_STD_FMIN, operand1, operand2);
+				spirv_id id = write_op_ext_inst2(instructions, convert_type_to_spirv_id(o->op_call.var.type.type), glsl_import,
+				                                 spirv_integer_inst(o->op_call.var.type.type, SPIRV_GLSL_STD_FMIN, SPIRV_GLSL_STD_SMIN, SPIRV_GLSL_STD_UMIN),
+				                                 operand1, operand2);
 				hmput(index_map, o->op_call.var.index, id);
 			}
 			else if (func == BUILTIN(max)) {
 				spirv_id operand1 = get_var(instructions, o->op_call.parameters[0]);
 				spirv_id operand2 = get_var(instructions, o->op_call.parameters[1]);
-				spirv_id id =
-				    write_op_ext_inst2(instructions, convert_type_to_spirv_id(o->op_call.var.type.type), glsl_import, SPIRV_GLSL_STD_FMAX, operand1, operand2);
+				spirv_id id = write_op_ext_inst2(instructions, convert_type_to_spirv_id(o->op_call.var.type.type), glsl_import,
+				                                 spirv_integer_inst(o->op_call.var.type.type, SPIRV_GLSL_STD_FMAX, SPIRV_GLSL_STD_SMAX, SPIRV_GLSL_STD_UMAX),
+				                                 operand1, operand2);
 				hmput(index_map, o->op_call.var.index, id);
 			}
 			else if (func == BUILTIN(clamp)) {
 				spirv_id operand1 = get_var(instructions, o->op_call.parameters[0]);
 				spirv_id operand2 = get_var(instructions, o->op_call.parameters[1]);
 				spirv_id operand3 = get_var(instructions, o->op_call.parameters[2]);
-				spirv_id id = write_op_ext_inst3(instructions, convert_type_to_spirv_id(o->op_call.var.type.type), glsl_import, SPIRV_GLSL_STD_FCLAMP, operand1,
-				                                 operand2, operand3);
+				spirv_id id =
+				    write_op_ext_inst3(instructions, convert_type_to_spirv_id(o->op_call.var.type.type), glsl_import,
+					                   spirv_integer_inst(o->op_call.var.type.type, SPIRV_GLSL_STD_FCLAMP, SPIRV_GLSL_STD_SCLAMP, SPIRV_GLSL_STD_UCLAMP),
+					                   operand1, operand2, operand3);
 				hmput(index_map, o->op_call.var.index, id);
 			}
 			else if (func == BUILTIN(saturate)) {
@@ -2768,10 +2823,10 @@ static void write_function(instructions_buffer *instructions, function *f, spirv
 					spirv_id stride_indices[]        = {get_int_constant(0), instance, get_int_constant(2)};
 					spirv_id vertex_buffer =
 					    write_op_load(instructions, spirv_uint2_type,
-					                  write_op_access_chain(instructions, instances_uint2_pointer_type, instances_var, vertex_buffer_indices, 3));
+						              write_op_access_chain(instructions, instances_uint2_pointer_type, instances_var, vertex_buffer_indices, 3));
 					spirv_id index_buffer =
 					    write_op_load(instructions, spirv_uint2_type,
-					                  write_op_access_chain(instructions, instances_uint2_pointer_type, instances_var, index_buffer_indices, 3));
+						              write_op_access_chain(instructions, instances_uint2_pointer_type, instances_var, index_buffer_indices, 3));
 					spirv_id stride = write_op_load(instructions, spirv_uint_type,
 					                                write_op_access_chain(instructions, instances_uint_pointer_type, instances_var, stride_indices, 3));
 
@@ -2782,8 +2837,8 @@ static void write_function(instructions_buffer *instructions, function *f, spirv
 
 					spirv_id indices         = write_op_bitcast(instructions, uint_data_pointer_type, index_buffer);
 					spirv_id index_indices[] = {get_int_constant(0), position};
-					spirv_id index           = write_op_load_aligned(instructions, spirv_uint_type,
-					                                                 write_op_access_chain(instructions, uint_data_uint_pointer_type, indices, index_indices, 2), 4);
+					spirv_id index = write_op_load_aligned(instructions, spirv_uint_type,
+					                                       write_op_access_chain(instructions, uint_data_uint_pointer_type, indices, index_indices, 2), 4);
 
 					// Vertex data is read as uints, stride is in bytes
 					spirv_id vertices = write_op_bitcast(instructions, uint_data_pointer_type, vertex_buffer);
@@ -2792,8 +2847,8 @@ static void write_function(instructions_buffer *instructions, function *f, spirv
 					spirv_id values[4];
 					for (uint32_t i = 0; i < 4; ++i) {
 						spirv_id value_indices[] = {get_int_constant(0), write_op_i_add(instructions, spirv_uint_type, first, get_uint_constant(i))};
-						values[i]                = write_op_load_aligned(instructions, spirv_uint_type,
-						                                                 write_op_access_chain(instructions, uint_data_uint_pointer_type, vertices, value_indices, 2), 4);
+						values[i] = write_op_load_aligned(instructions, spirv_uint_type,
+						                                  write_op_access_chain(instructions, uint_data_uint_pointer_type, vertices, value_indices, 2), 4);
 					}
 					hmput(index_map, o->op_call.var.index, write_op_composite_construct(instructions, spirv_uint4_type, values, 4));
 				}
@@ -2860,9 +2915,9 @@ static void write_function(instructions_buffer *instructions, function *f, spirv
 				kong_assert(indices_size == 1);
 				kong_assert(o->op_store_access_list.access_list[0].kind == ACCESS_ELEMENT);
 
-				spirv_id image_type = is_storage_image(o->op_store_access_list.to.index) ? storage_image_type(o->op_store_access_list.to.index)
-				                                                                         : spirv_readwrite_image_type;
-				spirv_id image      = write_op_load(instructions, image_type, convert_kong_index_to_spirv_id(o->op_store_access_list.to.index));
+				spirv_id image_type =
+				    is_storage_image(o->op_store_access_list.to.index) ? storage_image_type(o->op_store_access_list.to.index) : spirv_readwrite_image_type;
+				spirv_id image = write_op_load(instructions, image_type, convert_kong_index_to_spirv_id(o->op_store_access_list.to.index));
 
 				variable coordinate_var = o->op_store_access_list.access_list[0].access_element.index;
 				spirv_id coordinate     = get_var(instructions, coordinate_var);
@@ -3765,9 +3820,9 @@ static void write_globals(instructions_buffer *decorations, instructions_buffer 
 				// One type per format, the default and rgba64 are both rgba16f
 				texture_format format = g->format == TEXTURE_FORMAT_NONE ? TEXTURE_FORMAT_RGBA64 : g->format;
 				if (storage_image_types[format].id == 0) {
-					storage_image_types[format] =
-					    write_type_image(aggregate_types_block, spirv_float_type, DIM_2D, 0, 0, 0, 2, storage_image_format(format));
-					storage_image_pointer_types[format] = write_type_pointer(aggregate_types_block, STORAGE_CLASS_UNIFORM_CONSTANT, storage_image_types[format]);
+					storage_image_types[format] = write_type_image(aggregate_types_block, spirv_float_type, DIM_2D, 0, 0, 0, 2, storage_image_format(format));
+					storage_image_pointer_types[format] =
+					    write_type_pointer(aggregate_types_block, STORAGE_CLASS_UNIFORM_CONSTANT, storage_image_types[format]);
 				}
 
 				spirv_id spirv_var_id = convert_kong_index_to_spirv_id(g->var_index);
