@@ -9,6 +9,10 @@ float3 voronoi_hash3(float3 p) { \
     h.z = frac(sin(dot(p, float3(113.5, 271.9, 124.6))) * 43758.5453); \
     return h; \
 } \
+float3 voronoi_pos_unscale(float3 p, float s) { \
+    if (s == 0.0) { return float3(0.0, 0.0, 0.0); } \
+    return p / s; \
+} \
 float4 voronoi_2d_f1(float px, float py, float r) { \
     float cx0 = floor(px); float cy0 = floor(py); \
     float lx = px - cx0; float ly = py - cy0; \
@@ -24,8 +28,7 @@ float4 voronoi_2d_f1(float px, float py, float r) { \
     } \
     float bcx = cx0 + float(bi); float bcy = cy0 + float(bj); \
     float3 bh = voronoi_hash3(float3(bcx, bcy, 0.0)); \
-    float bptx = float(bi) + bh.x * r; float bpty = float(bj) + bh.y * r; \
-    float3 col = voronoi_hash3(float3(cx0 + float(bi) + bptx * (1.0 - r), cy0 + float(bj) + bpty * (1.0 - r), 0.0)); \
+    float3 col = bh; \
     return float4(min_dist, col.x, col.y, col.z); \
 } \
 float3 voronoi_2d_f1_pos(float px, float py, float r) { \
@@ -43,7 +46,7 @@ float3 voronoi_2d_f1_pos(float px, float py, float r) { \
     } \
     float bcx = cx0 + float(bi); float bcy = cy0 + float(bj); \
     float3 bh = voronoi_hash3(float3(bcx, bcy, 0.0)); \
-    return float3(bcx + float(bi) + bh.x * r, bcy + float(bj) + bh.y * r, 0.0); \
+    return float3(bcx + bh.x * r, bcy + bh.y * r, 0.0); \
 } \
 float4 voronoi_2d_f2(float px, float py, float r) { \
     float cx0 = floor(px); float cy0 = floor(py); \
@@ -61,8 +64,7 @@ float4 voronoi_2d_f2(float px, float py, float r) { \
     } \
     float bcx = cx0 + float(b2i); float bcy = cy0 + float(b2j); \
     float3 bh = voronoi_hash3(float3(bcx, bcy, 0.0)); \
-    float bptx = float(b2i) + bh.x * r; float bpty = float(b2j) + bh.y * r; \
-    float3 col = voronoi_hash3(float3(cx0 + float(b2i) + bptx * (1.0 - r), cy0 + float(b2j) + bpty * (1.0 - r), 0.0)); \
+    float3 col = bh; \
     return float4(dist2, col.x, col.y, col.z); \
 } \
 float3 voronoi_2d_f2_pos(float px, float py, float r) { \
@@ -81,7 +83,7 @@ float3 voronoi_2d_f2_pos(float px, float py, float r) { \
     } \
     float bcx = cx0 + float(b2i); float bcy = cy0 + float(b2j); \
     float3 bh = voronoi_hash3(float3(bcx, bcy, 0.0)); \
-    return float3(bcx + float(b2i) + bh.x * r, bcy + float(b2j) + bh.y * r, 0.0); \
+    return float3(bcx + bh.x * r, bcy + bh.y * r, 0.0); \
 } \
 float voronoi_2d_f1_fbm(float px, float py, float detail, float roughness, float lacunarity, float r) { \
     float sum = 0.0; float max_amp = 0.0; \
@@ -128,8 +130,7 @@ float4 voronoi_3d_f1(float3 p, float r) { \
         if (d < min_dist) { min_dist = d; bi = i; bj = j; bk = k; } \
     } \
     float3 off = float3(float(bi), float(bj), float(bk)); \
-    float3 bpt = off + voronoi_hash3(cell + off) * r; \
-    float3 col = voronoi_hash3(cell + off + bpt * (1.0 - r)); \
+    float3 col = voronoi_hash3(cell + off); \
     return float4(min_dist, col.x, col.y, col.z); \
 } \
 float3 voronoi_3d_f1_pos(float3 p, float r) { \
@@ -148,7 +149,7 @@ float3 voronoi_3d_f1_pos(float3 p, float r) { \
     } \
     float3 off = float3(float(bi), float(bj), float(bk)); \
     float3 bpt = off + voronoi_hash3(cell + off) * r; \
-    return cell + off + bpt; \
+    return cell + bpt; \
 } \
 float4 voronoi_3d_f2(float3 p, float r) { \
     float3 cell = floor(p); \
@@ -171,8 +172,7 @@ float4 voronoi_3d_f2(float3 p, float r) { \
         } \
     } \
     float3 off2 = float3(float(b2i), float(b2j), float(b2k)); \
-    float3 bpt2 = off2 + voronoi_hash3(cell + off2) * r; \
-    float3 col = voronoi_hash3(cell + off2 + bpt2 * (1.0 - r)); \
+    float3 col = voronoi_hash3(cell + off2); \
     return float4(dist2, col.x, col.y, col.z); \
 } \
 float3 voronoi_3d_f2_pos(float3 p, float r) { \
@@ -197,7 +197,7 @@ float3 voronoi_3d_f2_pos(float3 p, float r) { \
     } \
     float3 off2 = float3(float(b2i), float(b2j), float(b2k)); \
     float3 bpt2 = off2 + voronoi_hash3(cell + off2) * r; \
-    return cell + off2 + bpt2; \
+    return cell + bpt2; \
 } \
 float voronoi_3d_f1_fbm(float3 p, float detail, float roughness, float lacunarity, float r) { \
     float sum = 0.0; float max_amp = 0.0; \
@@ -231,12 +231,8 @@ float voronoi_3d_f2_fbm(float3 p, float detail, float roughness, float lacunarit
 } \
 ";
 
-// Euclidean normalization constants per dimension (sqrt(N)/2, approximate F1 max distance)
-static const char *voronoi_norm_const(i32 dim) {
-	if (dim == 0) // 2D: sqrt(2)/2
-		return "0.7071";
-	else // 3D: sqrt(3)/2
-		return "0.8660";
+static char *voronoi_norm_max_distance(i32 dim, bool is_f2, char *randomness) {
+	return string_tmp("(%s * (0.5 + 0.5 * %s) * %s)", dim == 0 ? "1.41421356" : "1.73205081", randomness, is_f2 ? "2.0" : "1.0");
 }
 
 char *voronoi_texture_node_vector(ui_node_t *node, ui_node_socket_t *socket) {
@@ -261,10 +257,10 @@ char *voronoi_texture_node_vector(ui_node_t *node, ui_node_socket_t *socket) {
 	}
 	else {              // Position
 		if (dim == 0) { // 2D
-			return string_tmp("voronoi_2d_%s_pos((%s).x, (%s).y, %s)", fn, p3s, p3s, randomness);
+			return string_tmp("voronoi_pos_unscale(voronoi_2d_%s_pos((%s).x, (%s).y, %s), %s)", fn, p3s, p3s, randomness, scale);
 		}
 		else { // 3D
-			return string_tmp("voronoi_3d_%s_pos(%s, %s)", fn, p3s, randomness);
+			return string_tmp("voronoi_pos_unscale(voronoi_3d_%s_pos(%s, %s), %s)", fn, p3s, randomness, scale);
 		}
 	}
 }
@@ -296,7 +292,7 @@ char *voronoi_texture_node_value(ui_node_t *node, ui_node_socket_t *socket) {
 	}
 
 	if (normalize) {
-		dist = string_tmp("clamp(%s / (%s * max(%s, 0.0001)), 0.0, 1.0)", dist, voronoi_norm_const(dim), randomness);
+		dist = string_tmp("clamp(%s / %s, 0.0, 1.0)", dist, voronoi_norm_max_distance(dim, is_f2, randomness));
 	}
 
 	return dist;
